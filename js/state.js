@@ -1,0 +1,159 @@
+import { loadState, saveState } from "./storage.js";
+import { validYear } from "../data/schema/models.js";
+import { navigation } from "./config.js";
+export function createStore({
+  storage,
+  now = () => new Date().toISOString(),
+  makeId = () => globalThis.crypto.randomUUID(),
+} = {}) {
+  let state = loadState(storage);
+  let persistent = true;
+  const listeners = new Set();
+  const runtime = { ai: "idle", speech: { speaking: false, paused: false } };
+  const persist = () => {
+    persistent = saveState(state, storage);
+    for (const fn of listeners) fn(state, persistent);
+    return persistent;
+  };
+  return {
+    get state() {
+      return state;
+    },
+    get persistent() {
+      return persistent;
+    },
+    runtime,
+    persist,
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    navigate(activity) {
+      if (!navigation.some((item) => item.id === activity))
+        throw new Error("Unknown activity");
+      state.activity = activity;
+      persist();
+    },
+    setYear(year) {
+      if (!validYear(year)) throw new Error("Invalid year");
+      state.year = year;
+      state.unit = "all";
+      state.theme = "all";
+      persist();
+    },
+    setTheme(theme) {
+      state.theme = String(theme);
+      persist();
+    },
+    setUnit(unit) {
+      if (unit !== "all" && (!Number.isInteger(Number(unit)) || Number(unit) < 1 || Number(unit) > 24))
+        throw new Error("Invalid unit");
+      state.unit = String(unit);
+      persist();
+    },
+    practice(id, changes) {
+      if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new Error("Invalid item ID");
+      state.practice[id] = { ...(state.practice[id] || { attempts: 0, revealed: false }), ...changes };
+      persist();
+    },
+    selectVocabulary(id) {
+      state.selectedVocabulary = [
+        ...new Set([...state.selectedVocabulary, id]),
+      ].slice(-20);
+      persist();
+    },
+    selectTitle(title, contentId = "") {
+      state.selectedEssayTitle[state.year] = title;
+      state.selectedEssayContent[state.year] = contentId;
+      persist();
+    },
+    draft(activity, title, pack, { fresh = false, itemId = "", contentId = "" } = {}) {
+      const key = `${state.year}:${activity}`;
+      let draft = fresh ? null : state.drafts[state.activeDrafts[key]];
+      const authored = activity === "essay" ? pack.writingTopics : pack.storyStarters;
+      const sameTitle = (authored || []).filter(record => record.title === title);
+      const canAdopt = sameTitle.length === 1 && sameTitle[0].id === contentId;
+      // Only migrate an unambiguous legacy title. Never guess between starters
+      // or reassign a draft that already has a stable identity.
+      const matchesContent = d => d.contentId === contentId || (!d.contentId && d.title === title && canAdopt);
+      if (draft && (contentId ? matchesContent(draft) : activity !== "essay" || draft.title === title) && (!itemId || draft.itemId === itemId)) {
+        if (contentId && !draft.contentId) { draft.contentId = contentId; persist(); }
+        return draft;
+      }
+      if (!fresh && contentId)
+        draft = Object.values(state.drafts).reverse().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .find(d => d.year === state.year && d.activity === activity && matchesContent(d));
+      if (!fresh && itemId)
+        draft = Object.values(state.drafts).reverse().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .find(d => d.year === state.year && d.activity === activity && d.itemId === itemId);
+      if (!fresh && activity === "essay" && !contentId)
+        draft = Object.values(state.drafts).find(
+          (d) =>
+            d.year === state.year &&
+            d.activity === activity &&
+            d.title === title,
+        );
+      if (!draft) {
+        const id = makeId();
+        draft = {
+          id,
+          year: state.year,
+          activity,
+          title,
+          itemId,
+          contentId,
+          source_type: "pupil",
+          enrichmentVersion: pack.enrichmentVersion || "",
+          text: "",
+          original: "",
+          fields: {},
+          plan: {},
+          lines: [],
+          stage: 0,
+          updatedAt: now(),
+          curriculumId: pack.curriculumId,
+          contentVersion: pack.version,
+        };
+        state.drafts[id] = draft;
+      }
+      if (contentId && !draft.contentId) draft.contentId = contentId;
+      state.activeDrafts[key] = draft.id;
+      persist();
+      return draft;
+    },
+    updateDraft(id, changes) {
+      const draft = state.drafts[id];
+      if (!draft) throw new Error("Unknown draft");
+      for (const key of ["text", "fields", "plan", "stage", "lines"])
+        if (Object.hasOwn(changes, key))
+          draft[key] = structuredClone(changes[key]);
+      // The first expansion sentence is an immutable baseline.
+      if (!draft.original && typeof changes.original === "string")
+        draft.original = changes.original;
+      draft.updatedAt = now();
+      persist();
+      return draft;
+    },
+    resume(id) {
+      const draft = state.drafts[id];
+      if (!draft) return false;
+      state.year = draft.year;
+      state.activity = draft.activity;
+      state.theme = "all";
+      state.unit = "all";
+      state.activeDrafts[`${draft.year}:${draft.activity}`] = id;
+      if (draft.activity === "essay") {
+        state.selectedEssayTitle[draft.year] = draft.title;
+        state.selectedEssayContent[draft.year] = draft.contentId || "";
+      }
+      persist();
+      return true;
+    },
+    deleteDraft(id) {
+      delete state.drafts[id];
+      for (const key of Object.keys(state.activeDrafts))
+        if (state.activeDrafts[key] === id) delete state.activeDrafts[key];
+      persist();
+    },
+  };
+}

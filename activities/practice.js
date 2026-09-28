@@ -1,0 +1,17 @@
+import { e, list } from "../components/ui.js";
+import { stimulus, selectedItem } from "../components/content.js";
+import { compareTranscription } from "../js/transcription.js";
+import { renderEnrichment } from "../components/enrichment.js";
+
+export function renderPractice({ pack, state, draft, speechStatus = { supported: false, malayVoice: false } }) {
+  const item = selectedItem(pack, state, draft);
+  if (!item) return `<section class="panel"><p>Item ini tidak tersedia dalam master semasa. Tulisan kamu kekal disimpan.</p><label class="field">Percubaan saya<textarea id="student-text" data-draft-field="text" maxlength="2000">${e(draft.text)}</textarea></label><div aria-live="polite"></div></section>`;
+  const progress = state.practice?.[item.id] || { attempts: 0 }, revealed = progress.revealed;
+  const feedback = draft.fields.checkedText === draft.text && draft.fields.feedback ? compareTranscription(item.text, draft.text) : null;
+  const support = pack.enrichment?.[item.id];
+  const help = item.type === "ejaan" && support?.spelling_focus
+    ? `<details class="enrichment"><summary>Bantuan ejaan pilihan</summary><p>${e(support.spelling_focus)}</p></details>`
+    : item.type === "imlak" && feedback && draft.text.trim() && support
+      ? `<section data-practice-vocabulary><h3>Kata / frasa fokus selepas mencuba</h3><p>${e(support.word)}</p>${renderEnrichment(support)}</section>` : "";
+  return `${stimulus(pack, state, draft, { hidden: true })}<section class="panel"><h2>${item.type === "imlak" ? "Dengar dan tulis ayat" : "Dengar atau lihat, kemudian eja"}</h2><p>${item.type === "imlak" ? "Taip ayat yang kamu dengar. Semak ejaan, huruf besar dan tanda baca." : "Taip perkataan atau frasa yang kamu dengar. Kekalkan frasa sebagai satu entri."}</p><div class="notice" role="status" id="practice-speech-status">${!speechStatus.supported ? "Bacaan suara tidak tersedia." : !speechStatus.malayVoice ? "Suara ms-MY tidak tersedia. Sebutan suara gantian mungkin kurang tepat." : "Suara ms-MY tersedia."} Jika perlu, pilih Lihat jawapan untuk latihan visual atau minta guru membacakan latihan. Jawapan hanya dipaparkan apabila kamu memilihnya.</div><div class="actions"><button class="button" data-practice-play ${!speechStatus.supported ? "disabled" : ""}>Dengar / ulang</button><button class="button" data-practice-reveal>Lihat jawapan / latihan visual</button><button class="small-button" data-practice-reset>Cuba semula tanpa paparan</button></div>${revealed ? `<div class="original"><span class="small">Jawapan rujukan · latihan dengan bantuan</span><p>${e(item.text)}</p></div>` : '<p class="small">Petunjuk: dengar semula dan semak tulisan satu persatu.</p>'}${help}<label class="field">Percubaan saya<textarea id="student-text" data-draft-field="text" rows="5" maxlength="2000" autocomplete="off" spellcheck="false">${e(draft.text)}</textarea></label><button class="button primary" data-practice-check>Semak transkripsi</button><p class="small">${progress.attempts} percubaan · ${progress.independentCorrect ? "Pernah tepat tanpa paparan jawapan" : progress.correct ? "Tepat dengan bantuan" : "Teruskan latihan"}</p><div aria-live="polite">${feedback ? `<h3>${feedback.correct ? "Transkripsi tepat" : "Semak transkripsi kamu"}</h3>${list(feedback.errors)}<p>Semakan ini membandingkan transkripsi dengan rujukan. Cadangan penulisan kreatif dibuat berasingan dalam Bina Ayat.</p>` : ""}</div><p class="small" data-save-status></p></section>`;
+}
