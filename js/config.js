@@ -14,7 +14,7 @@ export const navigation = [
     label: "Bank Kata & Frasa",
     icon: "book",
     description: "Kenali perkataan, temui makna baharu.",
-    color: "green",
+    color: "coral",
     step: "01",
     tag: "KENALI",
   },
