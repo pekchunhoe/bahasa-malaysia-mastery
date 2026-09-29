@@ -55,5 +55,5 @@ await writeFile(
   JSON.stringify({ version }) + "\n",
 );
 console.log(
-  `Built ${assets.length + 1} static assets in dist (${version}). Server-only API: /api/ai/tutor.`,
+  `Built ${assets.length + 1} static assets in dist (${version}). Server-only API: /api/gemini.`,
 );

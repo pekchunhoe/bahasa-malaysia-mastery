@@ -12,7 +12,7 @@ for (const name of [".env.local", ".env"]) {
     if (error.code !== "ENOENT") throw error;
   }
 }
-const { default: tutor } = await import("../api/ai/tutor.js");
+const { default: tutor } = await import("../api/gemini.js");
 const root = path.resolve(
   projectRoot,
   process.argv.includes("--dist") ? "dist" : ".",
@@ -28,7 +28,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`),
       requested = decodeURIComponent(url.pathname);
-    if (requested === "/api/ai/tutor") {
+    if (["/api/gemini", "/api/ai/tutor"].includes(requested)) {
       const controller = new AbortController(),
         disconnected = () => {
           if (!res.writableEnded) controller.abort();

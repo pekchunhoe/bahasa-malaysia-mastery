@@ -6,12 +6,17 @@ import {
   TutorInputError,
 } from "../js/tutor-actions.js";
 import { createTutorLimiter, clientRateLimit } from "./ai-rate-limit.js";
-import { generateTeachingResult, TIMEOUT_MS } from "./gemini.js";
+import { generateTeachingResult, selectGeminiModel, TIMEOUT_MS } from "./gemini.js";
 import { TeacherError, MAX_OUTPUT } from "./ai-contract.js";
 const messages = {
   INVALID_REQUEST: "Permintaan tidak sah. Semak tulisan dan cuba lagi.",
   AI_NOT_CONFIGURED:
     "Cikgu AI belum disambungkan. Kamu boleh jana prompt dan terus menulis.",
+  AI_MODEL_NOT_CONFIGURED:
+    "Model Cikgu AI belum disambungkan. Kamu boleh jana prompt dan terus menulis.",
+  AI_AUTH_ERROR: "Cikgu AI belum dapat disambungkan. Cuba lagi atau jana prompt.",
+  AI_MODEL_ERROR: "Model Cikgu AI tidak tersedia. Cuba lagi atau jana prompt.",
+  AI_NETWORK_ERROR: "Sambungan Cikgu AI terganggu. Cuba lagi atau jana prompt.",
   PROMPT_ONLY: "Gunakan Jana Prompt untuk semakan ini.",
   AI_RATE_LIMIT: "Cikgu AI sibuk. Tunggu seminit sebelum mencuba lagi.",
   AI_TIMEOUT: "Cikgu AI mengambil masa terlalu lama. Cuba lagi kemudian.",
@@ -25,6 +30,7 @@ export function createTeacherHandler({
   modes = {},
   limiter,
   timeoutMs = TIMEOUT_MS,
+  logger = console,
 } = {}) {
   limiter ??= createTutorLimiter({
     perClient: clientRateLimit(env.AI_CLIENT_RPM),
@@ -83,7 +89,8 @@ export function createTeacherHandler({
       if (executionMode(input.action, modes) === "prompt")
         throw new TeacherError("PROMPT_ONLY", 400);
       if (!env.GEMINI_API_KEY?.trim())
-        throw new TeacherError("AI_NOT_CONFIGURED", 503);
+        throw new TeacherError("AI_NOT_CONFIGURED", 500);
+      selectGeminiModel(input.action, env);
       release = limiter.acquire(request, env.VERCEL === "1");
       const cancelled = new Promise((_, reject) => {
         controller.signal.addEventListener(
@@ -123,14 +130,23 @@ export function createTeacherHandler({
       }
       return reply({ ok: true, action: input.action, data });
     } catch (error) {
+      const upstreamStatus = Number(error?.status);
       const code =
         error instanceof TutorInputError
           ? "INVALID_REQUEST"
           : error instanceof TeacherError
             ? error.code
-            : Number(error?.status) === 429
+            : upstreamStatus === 429
               ? "AI_RATE_LIMIT"
-              : "AI_UNAVAILABLE";
+              : [401, 403].includes(upstreamStatus)
+                ? "AI_AUTH_ERROR"
+                : [400, 404].includes(upstreamStatus)
+                  ? "AI_MODEL_ERROR"
+                  : error?.name === "APIConnectionTimeoutError"
+                    ? "AI_TIMEOUT"
+                    : error instanceof TypeError || error?.name === "APIConnectionError"
+                      ? "AI_NETWORK_ERROR"
+                      : "AI_UNAVAILABLE";
       const status =
         error instanceof TutorInputError
           ? 400
@@ -138,11 +154,26 @@ export function createTeacherHandler({
             ? error.status
             : code === "AI_RATE_LIMIT"
               ? 429
-              : 503;
+              : code === "AI_TIMEOUT"
+                ? 504
+                : 503;
+      const configuration =
+        code === "AI_NOT_CONFIGURED"
+          ? "GEMINI_API_KEY is not configured"
+          : code === "AI_MODEL_NOT_CONFIGURED"
+            ? "GEMINI_FAST_MODEL is not configured"
+            : undefined;
+      // Log only our controlled category/status, never upstream messages or headers.
+      if (status >= 500 || code === "AI_RATE_LIMIT")
+        logger.warn("Gemini request failed", { code, status, configuration });
       return reply(
         {
           ok: false,
-          error: { code, message: messages[code] || messages.AI_UNAVAILABLE },
+          error: {
+            code,
+            message: messages[code] || messages.AI_UNAVAILABLE,
+            configuration,
+          },
         },
         status,
       );

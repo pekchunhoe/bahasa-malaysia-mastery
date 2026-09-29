@@ -41,7 +41,7 @@ export function createAIService({
         abort();
       }, timeoutMs);
       try {
-        const response = await fetcher("/api/ai/tutor", {
+        const response = await fetcher("/api/gemini", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(request),

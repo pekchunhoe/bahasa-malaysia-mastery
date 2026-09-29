@@ -138,20 +138,22 @@ test("HTTP server serves the module graph and blocks server files and secrets", 
       (await fetch(base + "/version.json")).headers.get("Cache-Control"),
       "no-store",
     );
-    const api = await fetch(base + "/api/ai/tutor", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "sentence_check",
-        activity: "sentence",
-        year: 1,
-        title: "",
-        studentText: "Saya bermain.",
-      }),
-    });
-    assert.equal(api.status, 503);
-    assert.equal(api.headers.get("Cache-Control"), "no-store");
-    assert.equal((await api.json()).error.code, "AI_NOT_CONFIGURED");
+    for (const endpoint of ["/api/gemini", "/api/ai/tutor"]) {
+      const api = await fetch(base + endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sentence_check",
+          activity: "sentence",
+          year: 1,
+          title: "",
+          studentText: "Saya bermain.",
+        }),
+      });
+      assert.equal(api.status, 500);
+      assert.equal(api.headers.get("Cache-Control"), "no-store");
+      assert.equal((await api.json()).error.code, "AI_NOT_CONFIGURED");
+    }
   } finally {
     child.kill();
   }

@@ -30,13 +30,16 @@ const feedback = {
   example: null,
 };
 const request = (data, options = {}) =>
-  new Request("http://localhost/api/ai/tutor", {
+  new Request("http://localhost/api/gemini", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
     ...options,
   });
-const mockEnv = { GEMINI_API_KEY: "fixture-only-server-secret" };
+const mockEnv = {
+  GEMINI_API_KEY: "fixture-only-server-secret",
+  GEMINI_FAST_MODEL: "configured-fast",
+};
 const okResponse = (action) =>
   Response.json({ ok: true, action, data: feedback });
 test("all ten tutor actions route through a single configuration", () => {
@@ -286,7 +289,7 @@ test("server rejects bypassing prompt-only modes and handles missing credentials
   assert.equal(review.status, 400);
   assert.equal((await review.json()).error.code, "PROMPT_ONLY");
   const missing = await handler(request(input()));
-  assert.equal(missing.status, 503);
+  assert.equal(missing.status, 500);
   assert.equal((await missing.json()).error.code, "AI_NOT_CONFIGURED");
   assert.equal(calls, 0);
 });
@@ -355,7 +358,13 @@ test("per-client and concurrent rate limits are bounded and reusable after relea
   limiter.acquire(request(input()))();
 });
 test("model choices remain server-controlled", () => {
-  assert.ok(selectGeminiModel("sentence_check").model.includes("flash-lite"));
+  for (const GEMINI_FAST_MODEL of [undefined, "", "   "])
+    assert.throws(
+      () => selectGeminiModel("sentence_check", { GEMINI_FAST_MODEL }),
+      /AI_MODEL_NOT_CONFIGURED/,
+    );
+  for (const action of Object.keys(tutorActions))
+    assert.equal(selectGeminiModel(action, mockEnv).model, "configured-fast");
   assert.equal(
     selectGeminiModel("sentence_check", {
       GEMINI_FAST_MODEL: "configured-fast",

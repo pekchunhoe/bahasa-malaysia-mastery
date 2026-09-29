@@ -1,7 +1,10 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "functions": { "api/ai/tutor.js": { "maxDuration": 40 } },
+  "functions": {
+    "api/gemini.js": { "maxDuration": 40 },
+    "api/ai/tutor.js": { "maxDuration": 40 }
+  },
   "headers": [
     {
       "source": "/(.*)",
@@ -13,6 +16,10 @@
     },
     {
       "source": "/version.json",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+    },
+    {
+      "source": "/api/gemini",
       "headers": [{ "key": "Cache-Control", "value": "no-store" }]
     },
     {

@@ -40,7 +40,7 @@ npm run dev
 
 Open **http://localhost:4174**. Writing, transcription checks, local autosave and Generate Prompt work without an API key.
 
-To enable live AI, copy `.env.example` to `.env.local`, set `GEMINI_API_KEY` and verify the model IDs enabled for your account. Restart the server after configuration changes. Never put credentials in browser files. Paragraph and essay reviews default to local prompt generation and cannot invoke a paid route from the pupil interface.
+To enable live AI locally, copy `.env.example` to `.env.local` and set the server-only `GEMINI_API_KEY` and `GEMINI_FAST_MODEL`. On Vercel, configure these in the project environment settings. The intended production model value is `gemini-3.5-flash-lite`. All direct AI actions use only `GEMINI_FAST_MODEL`: missing configuration returns an explicit server error, and failures never substitute another model. Restart the local server after configuration changes. Never put credentials in browser files. Paragraph and essay reviews default to local prompt generation and cannot invoke a paid route from the pupil interface.
 
 ## Check and build
 
@@ -55,7 +55,7 @@ npm run preview
 
 `npm run data:prepare` compares `data/BM_MASTER_EJAAN_IMLAK_2026_MUKTAMAD.xlsx` against `data/bm_content_2026_app_ready.json` without modifying either. Any mismatch stops publication. Preparation also runs before development, tests and the production build. It emits one runtime module, `data/generated/master.js`, from the validated JSON, plus the private `audit/workbook.json`. The browser does not parse Excel. The workbook and audit are not published in `dist` or served by the local server. Build hosts must provide Python 3 as well as Node.
 
-`vercel.json` configures the static output and `/api/ai/tutor` function using the source application's deployment pattern. Static hosting alone supports the writing activities and prompt mode; API mode requires the Node function.
+`vercel.json` configures the static output and `/api/gemini` function using the source application's deployment pattern. `/api/ai/tutor` is a compatibility alias to the same handler for previously loaded clients. Static hosting alone supports the writing activities and prompt mode; API mode requires the Node function.
 
 ## Master content and drafts
 
@@ -98,7 +98,7 @@ limitations and the full changed-file inventory.
 - `components/enrichment.js`, `js/local-writing-check.js`: optional authored support and limited local surface checks.
 - `activities/practice.js`, `js/transcription.js`: deterministic ejaan/imlak exercises and feedback.
 - `js/state.js`, `js/storage.js`: BM-specific draft persistence and transient request state.
-- `js/tutor-actions.js`, `js/ai-teacher.js`, `server/`, `api/ai/tutor.js`: tutor modes, contracts and server-only Gemini integration.
+- `js/tutor-actions.js`, `js/ai-teacher.js`, `server/`, `api/gemini.js`: tutor modes, contracts and server-only Gemini integration.
 - `js/speech-service.js`, `js/deployment-version.js`: read-aloud and safe update handling.
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) for the import flow, activity behavior and AI isolation. [VERIFICATION.md](VERIFICATION.md) records checks and remaining manual validation.

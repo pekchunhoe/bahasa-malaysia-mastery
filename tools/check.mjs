@@ -19,6 +19,12 @@ async function files(dir) {
   return found;
 }
 const all = await files(root);
+// Check actual published assets too, after a build, without inspecting dependencies.
+try {
+  all.push(...await files(path.join(root, "dist")));
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
 let checked = 0;
 for (const file of all) {
   if (/\.(?:m?js|css|html|json|md|svg)$/.test(file)) {
@@ -34,13 +40,13 @@ for (const file of all) {
     checked++;
   }
   if (
-    /^(js|components|activities|data|styles)[\\/]/.test(
+    /^(?:(?:js|components|activities|data|styles|dist)[\\/]|index\.html$)/.test(
       path.relative(root, file),
     ) && /\.(?:js|css|html|json)$/.test(file)
   ) {
     const source = await readFile(file, "utf8");
     if (
-      /AIza[\w-]{20,}|GEMINI_API_KEY|@google\/genai|[\u3400-\u9fff]/u.test(
+      /AIza[\w-]{20,}|GEMINI_API_KEY|GEMINI_FAST_MODEL|GOOGLE_API_KEY|@google\/genai|GoogleGenAI|GoogleGenerativeAI|generativelanguage\.googleapis\.com|[\u3400-\u9fff]/u.test(
         source,
       )
     )
