@@ -1,0 +1,64 @@
+{
+  "workbook": "BM_MASTER_KARANGAN_1000_TAHAP_KERJA.xlsx",
+  "sha256": "ca1e5219ff8241c13b7873e728a3cab5088e00172389395520298a8a7019b445",
+  "sheets": [
+    {
+      "name": "MASTER_KARANGAN",
+      "rows": 1001
+    },
+    {
+      "name": "STATUS_DAN_PANDUAN",
+      "rows": 12
+    }
+  ],
+  "headers": [
+    "id_tajuk",
+    "tahun",
+    "umur_anggaran",
+    "tahap",
+    "jenis_karangan",
+    "tema",
+    "tajuk_karangan",
+    "format_penulisan",
+    "aktiviti_cadangan",
+    "status",
+    "karangan_contoh",
+    "bilangan_perkataan",
+    "status_karangan"
+  ],
+  "sourceRows": 1000,
+  "imported": 1000,
+  "uniqueIds": 1000,
+  "uniqueTitles": 1000,
+  "uniqueExamples": 1000,
+  "wordCountMismatches": 0,
+  "wordCountRange": {
+    "min": 131,
+    "max": 170
+  },
+  "types": {
+    "Cerita pengalaman": 200,
+    "Cerita rekaan": 124,
+    "Gambaran": 82,
+    "Penerangan mudah": 48,
+    "Langkah mudah": 48,
+    "Penerangan fakta": 152,
+    "Langkah dan panduan": 56,
+    "Dialog": 34,
+    "Surat tidak rasmi": 34,
+    "Catatan harian": 34,
+    "Karangan pendapat": 62,
+    "Laporan": 42,
+    "Surat rasmi": 42,
+    "Syarahan dan ucapan": 42
+  },
+  "counts": {
+    "1": 100,
+    "2": 140,
+    "3": 160,
+    "4": 180,
+    "5": 220,
+    "6": 200
+  },
+  "excluded": []
+}

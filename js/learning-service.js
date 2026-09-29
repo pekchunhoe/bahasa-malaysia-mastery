@@ -27,6 +27,7 @@ export function hasWriting(draft) {
     draft.text.trim() ||
     draft.original.trim() ||
     draft.lines.some((x) => x.trim()) ||
+    draft.revisions?.some(v => v.text.trim()) ||
     Object.values(draft.fields).some((x) => x.trim()) ||
     Object.values(draft.plan).some((x) => x.trim()),
   );
@@ -36,5 +37,5 @@ export const draftText = (draft) =>
     ? [...draft.lines, draft.text].filter(Boolean).join("\n\n")
     : draft.text;
 export function exportDraft(draft) {
-  return `${draft.title}\nTahun ${draft.year}\n\n${draft.original ? `Ayat asal: ${draft.original}\n\n` : ""}${draftText(draft)}\n\nCatatan saya:\n${Object.values(draft.plan).filter(Boolean).join("\n")}\n${Object.values(draft.fields).filter(Boolean).join(" | ")}`;
+  return `${draft.title}\nTahun ${draft.year}\n\n${draft.original ? `Ayat asal: ${draft.original}\n\n` : ""}${draftText(draft)}\n\nCatatan saya:\n${Object.values(draft.plan).filter(Boolean).join("\n")}\n${Object.values(draft.fields).filter(Boolean).join(" | ")}${(draft.revisions || []).map((v, i) => `\n\nVersi ${i + 1} (${v.savedAt}):\n${v.text}`).join('')}`;
 }

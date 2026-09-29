@@ -18,6 +18,8 @@ import { renderHome, renderDrafts } from "../components/home.js";
 import { activityRegistry } from "../activities/registry.js";
 import { vocabularyCards } from "../activities/vocabulary.js";
 import { watchForDeploymentUpdate } from "./deployment-version.js";
+import { writingTopicsFor } from "./essay-service.js";
+import { topicResults, revisionHistory } from "../components/essay-catalog.js";
 
 const store = createStore(),
   ai = createAIService();
@@ -62,18 +64,19 @@ function prepare() {
   if (spec && route !== "vocabulary") {
     const existing = store.state.drafts[store.state.activeDrafts[`${store.state.year}:${route}`]];
     if (route === "essay") {
-      const id = store.state.selectedEssayContent[store.state.year];
-      const title = store.state.selectedEssayTitle[store.state.year];
+      const id = store.state.selectedEssayContent[store.state.year] || existing?.contentId;
+      const title = store.state.selectedEssayTitle[store.state.year] || existing?.title;
       const matches = pack.writingTopics.filter(t => t.title === title);
       const topic = (id ? pack.writingTopics.find(t => t.id === id) : matches.length === 1 ? matches[0] : null) || (!title && !id ? pack.writingTopics[0] : null);
       const chosenTitle = topic?.title || title || "Karangan saya";
       store.selectTitle(chosenTitle, topic?.id || id || "");
       draft = store.draft(route, chosenTitle, pack, { contentId: topic?.id || id || "" });
-    } else if (route === "story") {
-      const matches = pack.storyStarters.filter(t => t.title === existing?.title);
-      const starter = existing ? (existing.contentId ? pack.storyStarters.find(t => t.id === existing.contentId)
-        : matches.length === 1 ? matches[0] : null) : pack.storyStarters[0];
-      draft = store.draft(route, existing?.title || starter?.title || "Cerita saya", pack,
+    } else if (route === "story" || route === "paragraph") {
+      const topics = writingTopicsFor(pack, route);
+      const matches = topics.filter(t => t.title === existing?.title);
+      const starter = existing ? (existing.contentId ? topics.find(t => t.id === existing.contentId)
+        : matches.length === 1 ? matches[0] : null) : topics[0];
+      draft = store.draft(route, existing?.title || starter?.title || (route === 'paragraph' ? pack.activitySets.paragraph.title : "Cerita saya"), pack,
         { contentId: existing?.contentId || starter?.id || "" });
     } else {
       const title = pack.activitySets[spec.task].title;
@@ -132,6 +135,10 @@ function refreshWords() {
     document.querySelector("#word-search").value,
   );
 }
+function refreshWritingTopics() {
+  const target = document.querySelector('#writing-topic-results');
+  if (target && draft) target.innerHTML = topicResults(pack, store.state, draft);
+}
 function download(id) {
   const saved = store.state.drafts[id];
   if (!saved) return;
@@ -169,6 +176,11 @@ function aiRequest(action, word) {
     (action === "paragraph_review" && store.state.activity === "essay"
       ? paragraphSelection || draft.text
       : draftText(draft));
+  if (!word && ['essay', 'paragraph', 'story'].includes(draft?.activity) && draftText(draft).trim()) {
+    preserveWritingVersion();
+    const history = document.querySelector('#writing-revisions');
+    if (history) history.outerHTML = revisionHistory(draft);
+  }
   openTeacher({
     service: ai,
     store,
@@ -183,6 +195,11 @@ function aiRequest(action, word) {
       ...(word || !["sentence", "expansion"].includes(store.state.activity) ? {} : { referenceText: selectedItem(pack, store.state, draft)?.text || "" }),
     },
   });
+}
+function preserveWritingVersion() {
+  const saved = store.snapshotDraft(draft.id);
+  if (!saved) toast('Versi tersimpan sudah penuh (20). Muat turun draf untuk menyimpan tulisan semasa sebelum membaiki.');
+  return saved;
 }
 function rememberParagraph() {
   const editor = document.querySelector("#student-text");
@@ -221,9 +238,26 @@ function bind() {
     if (target.id === "original-input")
       write({ fields: { ...draft.fields, originalDraft: target.value } });
     if (target.id === "word-search") refreshWords();
+    if (target.dataset.writingFilter === 'query') {
+      store.setWritingFilter(store.state.activity, 'query', target.value);
+      refreshWritingTopics();
+    }
   };
   root.onchange = (event) => {
     const target = event.target;
+    if (target.dataset.writingFilter && target.dataset.writingFilter !== 'query') {
+      store.setWritingFilter(store.state.activity, target.dataset.writingFilter, target.value);
+      refreshWritingTopics();
+    }
+    if (target.id === 'writing-topic-select' && target.value) {
+      const topic = writingTopicsFor(pack, store.state.activity).find(t => t.id === target.value);
+      if (topic) {
+        speech.stop(); ai.clearCache();
+        if (store.state.activity === 'essay') store.selectTitle(topic.title, topic.id);
+        store.draft(store.state.activity, topic.title, pack, { contentId: topic.id });
+        render();
+      }
+    }
     if (target.id === "year-select") {
       const next = Number(target.value);
       if (next === store.state.year) return;
@@ -284,6 +318,22 @@ function bind() {
     const button = event.target.closest("button");
     if (!button || button.disabled) return;
     const d = button.dataset;
+    if ('hideExample' in d) {
+      const disclosure = button.closest('[data-essay-example]');
+      if (disclosure) { disclosure.open = false; disclosure.querySelector('summary').focus(); }
+    }
+    if ('resetWritingFilters' in d) {
+      store.resetWritingFilters(store.state.activity);
+      render();
+    }
+    if ('reloadEssays' in d) {
+      if (store.persist()) location.reload();
+      else toast(labels.temporary);
+    }
+    if ('saveWritingVersion' in d) {
+      if (store.snapshotDraft(draft.id)) render();
+      else toast('Tulis dahulu. Maksimum 20 versi; muat turun draf jika ruang versi sudah penuh.');
+    }
     if ("localCheck" in d) {
       const { messages } = checkWritingBasics(draft.text);
       document.querySelector("#local-feedback").innerHTML = messages.length
@@ -391,6 +441,7 @@ function bind() {
       render();
     }
     if (d.stage !== undefined) {
+      if (Number(d.stage) === 5 && draft.stage !== 5 && draft.text.trim()) preserveWritingVersion();
       write({ stage: Number(d.stage) });
       render();
     }

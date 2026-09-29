@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { getCurriculumPack } from '../js/curriculum-service.js';
 import { createStore } from '../js/state.js';
 import { STORAGE_KEY } from '../js/storage.js';
+import { toast } from '../components/ui.js';
 
 // Exercise the real app event handlers with a small DOM boundary double.
 // This is controller coverage, not browser/visual/audio validation.
@@ -17,7 +18,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
   }
   const nodes = new Map(), events = {}, spoken = [], requests = [];
   const node = selector => {
-    if (!nodes.has(selector)) nodes.set(selector, { innerHTML: '', textContent: '', value: '', dataset: {}, classList: { toggle() {} }, focus() {}, close() {}, remove() { this.removed = true; } });
+    if (!nodes.has(selector)) nodes.set(selector, { innerHTML: '', textContent: '', value: '', dataset: {}, classList: { toggle() {}, add() {}, remove() {} }, focus() {}, querySelector: node, showModal() { this.open = true; }, close() { this.open = false; this.onclose?.(); }, remove() { this.removed = true; } });
     return nodes.get(selector);
   };
   const globals = {
@@ -31,6 +32,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
   };
   const descriptors = Object.fromEntries(Object.keys(globals).map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
   t.after(() => {
+    clearTimeout(toast.timer);
     for (const [key, descriptor] of Object.entries(descriptors)) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else delete globalThis[key];
@@ -129,4 +131,126 @@ test('writing vocabulary filters preserve paragraph draft and practice hides foc
   practice.click({ practiceReset: '' });
   assert.ok(!practice.root.innerHTML.includes('data-practice-vocabulary'));
   assert.equal(practice.requests.length, 0);
+});
+
+test('master writing controllers filter, select by ID, autosave, navigate back and reload all three activities', async t => {
+  for (const activity of ['essay', 'paragraph', 'story']) await t.test(activity, async t => {
+    const h = await appHarness(t, { year: 6, activity });
+    const topic = h.pack.essayTopics[1];
+    const previousId = h.state().activeDrafts[`6:${activity}`];
+    h.type('Draf pertama disimpan.');
+    h.root.onchange({ target: { dataset: { writingFilter: 'category' }, value: topic.category } });
+    h.root.oninput({ target: { dataset: { writingFilter: 'query' }, value: topic.title } });
+    assert.ok(h.node('#writing-topic-results').innerHTML.includes(topic.id));
+    assert.equal(h.state().activeDrafts[`6:${activity}`], previousId);
+    h.root.onchange({ target: { id: 'writing-topic-select', dataset: {}, value: topic.id } });
+    h.type('Isi sendiri sebelum pembaikan.');
+    h.root.oninput({ target: { dataset: { plan: 'p0' }, value: 'Rancangan saya.' } });
+    const id = h.state().activeDrafts[`6:${activity}`];
+    assert.notEqual(id, previousId);
+    assert.equal(h.state().drafts[id].contentId, topic.id);
+    assert.equal(h.state().drafts[previousId].text, 'Draf pertama disimpan.');
+    if (activity === 'essay') h.click({ stage: '5' });
+    else h.click({ saveWritingVersion: '' });
+    h.type('Isi sendiri selepas pembaikan.');
+    if (activity === 'story') h.click({ addStory: '' });
+    // Native summary activation has no write handler; closing uses only DOM state.
+    let focused = false;
+    const details = { open: true, querySelector: () => ({ focus() { focused = true; } }) };
+    const button = { dataset: { hideExample: '' }, closest: () => details };
+    const beforeClose = JSON.stringify(h.state());
+    h.root.onclick({ target: { closest: () => button } });
+    assert.equal(details.open, false); assert.equal(focused, true);
+    assert.equal(JSON.stringify(h.state()), beforeClose);
+    globalThis.location.hash = '#vocabulary'; h.events.hashchange();
+    globalThis.location.hash = `#${activity}`; h.events.hashchange();
+    assert.equal(h.state().activeDrafts[`6:${activity}`], id);
+    h.events.pagehide();
+    const loaded = await appHarness(t, { year: 6, activity, savedStorage: h.storage });
+    const saved = loaded.state().drafts[id];
+    assert.equal(saved.revisions[0].text, 'Isi sendiri sebelum pembaikan.');
+    assert.equal(activity === 'story' ? saved.lines[0] : saved.text, 'Isi sendiri selepas pembaikan.');
+    assert.equal(saved.plan.p0, 'Rancangan saya.');
+    assert.equal(loaded.state().writingFilters[`6:${activity}`].query, topic.title);
+    assert.equal(loaded.state().activeDrafts[`6:${activity}`], id);
+    assert.ok(!/<details[^>]*\bopen\b/.test(loaded.root.innerHTML));
+    assert.equal(h.requests.length + loaded.requests.length, 0);
+  });
+});
+
+test('old essay draft without selection metadata resumes instead of being replaced by first master title', async t => {
+  const data = new Map(), storage = { getItem: k => data.get(k) ?? null, setItem: (k, v) => data.set(k, v) };
+  const store = createStore({ storage }), pack = getCurriculumPack(1);
+  const old = store.draft('essay', 'Petang Bersama Rakan', pack);
+  store.updateDraft(old.id, { text: 'Karangan lama milik saya.', stage: 3, plan: { p0: 'Isi lama.' } });
+  const h = await appHarness(t, { activity: 'essay', savedStorage: storage });
+  assert.equal(h.state().activeDrafts['1:essay'], old.id);
+  assert.equal(h.state().drafts[old.id].contentId, 'demo-petang');
+  assert.match(h.root.innerHTML, /Karangan lama milik saya\.<\/textarea>/);
+  assert.equal(Object.keys(h.state().drafts).length, 1);
+});
+
+test('AI guidance preserves the complete pupil version before immediate revision in each writing activity', async t => {
+  for (const activity of ['essay', 'paragraph', 'story']) await t.test(activity, async t => {
+    const h = await appHarness(t, { year: 6, activity });
+    if (activity === 'story') { h.type('Pembukaan saya.'); h.click({ addStory: '' }); }
+    h.type('Tulisan sebelum bimbingan.');
+    const id = h.state().activeDrafts[`6:${activity}`];
+    const original = activity === 'story' ? 'Pembukaan saya.\n\nTulisan sebelum bimbingan.' : 'Tulisan sebelum bimbingan.';
+    const action = activity === 'essay' ? 'essay_review' : activity === 'paragraph' ? 'paragraph_review' : 'sentence_check';
+    h.click({ ai: action });
+    assert.equal(h.state().drafts[id].revisions[0].text, original);
+    assert.match(h.node('#writing-revisions').outerHTML, /Lihat versi tersimpan \(1\)/);
+    h.node('#modal').close();
+    h.click({ ai: action });
+    assert.equal(h.state().drafts[id].revisions.length, 1, 'Repeated guidance does not duplicate an unchanged version');
+    h.node('#modal').close();
+    h.type('Tulisan selepas bimbingan.');
+    h.events.pagehide();
+    const loaded = await appHarness(t, { year: 6, activity, savedStorage: h.storage });
+    assert.equal(loaded.state().drafts[id].revisions[0].text, original);
+    assert.equal(loaded.state().drafts[id].text, 'Tulisan selepas bimbingan.');
+    assert.deepEqual(loaded.state().drafts[id].lines, activity === 'story' ? ['Pembukaan saya.'] : []);
+  });
+});
+
+test('automatic revision limit warns without deleting earlier versions or changing the current draft', async t => {
+  const h = await appHarness(t, { activity: 'essay' });
+  const id = h.state().activeDrafts['1:essay'];
+  for (let i = 0; i < 20; i++) { h.type(`Versi ${i}.`); h.click({ saveWritingVersion: '' }); }
+  const revisions = h.state().drafts[id].revisions;
+  h.type('Tulisan semasa yang belum diarkibkan.');
+  h.click({ ai: 'essay_review' });
+  assert.match(h.node('#toast').textContent, /penuh.*Muat turun draf/);
+  h.node('#modal').close();
+  h.node('#toast').textContent = '';
+  h.click({ stage: '5' });
+  assert.match(h.node('#toast').textContent, /penuh.*Muat turun draf/);
+  assert.deepEqual(h.state().drafts[id].revisions, revisions);
+  assert.equal(h.state().drafts[id].text, 'Tulisan semasa yang belum diarkibkan.');
+});
+
+test('year changes and empty filters preserve active drafts across all six years and writing activities', async t => {
+  for (const activity of ['essay', 'paragraph', 'story']) await t.test(activity, async t => {
+    const h = await appHarness(t, { activity }), ids = [];
+    const changeYear = year => {
+      h.root.onchange({ target: { id: 'year-select', value: String(year), dataset: {} } });
+      h.node('#accept-confirm').onclick();
+    };
+    for (let year = 1; year <= 6; year++) {
+      if (year !== 1) changeYear(year);
+      h.type(`Tulisan Tahun ${year}.`);
+      ids.push(h.state().activeDrafts[`${year}:${activity}`]);
+      h.root.oninput({ target: { dataset: { writingFilter: 'query' }, value: 'no-such-title-000' } });
+      assert.match(h.node('#writing-topic-results').innerHTML, /Tiada tajuk sepadan/);
+      h.click({ resetWritingFilters: '' });
+      assert.equal(h.state().drafts[ids[year - 1]].text, `Tulisan Tahun ${year}.`);
+    }
+    assert.equal(new Set(ids).size, 6);
+    for (let year = 5; year >= 1; year--) {
+      changeYear(year);
+      assert.equal(h.state().activeDrafts[`${year}:${activity}`], ids[year - 1]);
+      assert.equal(h.state().drafts[ids[year - 1]].text, `Tulisan Tahun ${year}.`);
+    }
+  });
 });

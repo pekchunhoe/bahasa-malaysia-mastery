@@ -102,7 +102,8 @@ test("all production activities render for every year; paragraphs/stories never 
         for (const item of pack.items.filter(i => i.type === "imlak")) assert.ok(!html.includes(e(item.text)));
         assert.equal(draft.text, "");
       }
-      if (activity === "essay" || activity === "story") assert.ok(html.includes("DEMO"));
+      if (activity === "essay") assert.ok(html.includes("CONTOH RUJUKAN MASTER"));
+      if (activity === "story") assert.ok(html.includes("DEMO"));
       if (activity === "vocabulary" && year >= 4) assert.ok(html.includes(e(pack.vocabulary[0].word)));
     }
   }

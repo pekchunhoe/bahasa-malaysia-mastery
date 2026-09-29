@@ -1804,6 +1804,24 @@ blockquote {
 #theme-filter { width: 100%; min-width: 0; max-width: 100%; }
 .word-card { min-width: 0; overflow-wrap: anywhere; }
 .word-card .enrichment { flex: 1; }
+.essay-catalog,
+.essay-reference,
+.current-writing-title { min-width: 0; overflow-wrap: anywhere; }
+.essay-filters { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(2, minmax(140px, 1fr)); gap: 12px; }
+.essay-filters select,
+.essay-filters input,
+#writing-topic-select { width: 100%; min-width: 0; max-width: 100%; }
+.essay-reference summary { cursor: pointer; padding: 12px 0; min-height: 44px; font-weight: 650; }
+.essay-reference summary:focus-visible { outline: 3px solid #285745; }
+.essay-model { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.85; font-size: 16px; color: #344d40; max-width: 75ch; margin: 18px 0; }
+@media (max-width: 900px) {
+  .essay-filters { grid-template-columns: 1fr; }
+}
+@media (max-width: 650px) {
+  .essay-catalog input,
+  .essay-catalog select { font-size: 16px; }
+  .essay-reference { padding: 18px; }
+}
 .toolbar { flex-wrap: wrap; }
 .toolbar > .field { flex: 1 1 180px; }
 .toolbar > .search-field { flex: 2 1 220px; min-width: 0; }

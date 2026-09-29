@@ -2,7 +2,32 @@
 
 **Daripada Perkataan kepada Karangan** — a Bahasa Melayu learning application for Tahun 1–6, integrated with the final 2026 master and approved vocabulary export.
 
-Plain JavaScript modules, responsive CSS, local drafts, browser speech, one Cikgu AI dialog and an optional server-side Gemini endpoint. Ejaan and imlak retain 1,080 verified source items. All 720 ejaan enrichments and 360 imlak vocabulary focuses are AI-generated material approved in bulk by the user. Two essay prompts and one independent story starter remain explicitly labelled **DEMO**.
+Plain JavaScript modules, responsive CSS, local drafts, browser speech, one Cikgu AI dialog and an optional server-side Gemini endpoint. Ejaan and imlak retain 1,080 verified source items. All 720 ejaan enrichments and 360 imlak vocabulary focuses are AI-generated material approved in bulk by the user. The essay master adds 1,000 complete titles and reference essays. Two older essay prompts and one story starter remain **DEMO** for compatibility with saved drafts.
+
+## Master essays
+
+`data/BM_MASTER_KARANGAN_1000_TAHAP_KERJA.xlsx` is the editable master.
+`npm run data:prepare` imports both workbooks, and the essay importer writes
+`data/generated/essays.js` plus the private `audit/essays.json`. New rows and
+corrections can be reimported without changing activity components. Incomplete
+or unready rows are reported; duplicate IDs/titles, invalid years and incorrect
+word counts stop the import.
+
+The current catalog has **1,000 unique IDs, titles and examples**: Tahun 1–6
+contain **100 / 140 / 160 / 180 / 220 / 200** respectively. `tema` supplies
+category filters; `jenis_karangan` supplies the separate genre filter.
+Karangan Berpandu and Bina Perenggan use all topics; Rantai Cerita uses the 324
+experience/fiction topics. Guidance varies by year and genre, including letter,
+report, dialogue and speech formats.
+
+Examples stay closed until **Lihat contoh karangan** is selected and can be
+hidden again. Paragraphs and line breaks remain intact. Examples never populate
+pupil editors. Draft identity, autosave and the existing storage key remain;
+optional filters and up to 20 saved writing versions are additive. Entering the
+essay revision stage preserves the previous text as a separate version.
+
+See [the essay integration report](audit/KARANGAN_INTEGRATION.md) for the full
+audit, changed-file inventory, tests and remaining visual verification limits.
 
 ## Run locally
 
@@ -53,11 +78,12 @@ Independent teacher content still uses `data/schema/enrichment.js`; demo
 vocabulary supplements were removed from production in favour of the master.
 Existing demo writing titles and story starters retain their IDs and drafts.
 
-Validation: **81 tests pass**, syntax/isolation checks and production build pass.
+Validation: **94 tests pass**, syntax/isolation checks and production build pass.
 Data counts, every year/unit filter, disclosure markup, transcription and draft
 restoration are covered. Browser visual/mobile and actual reload/speech checks
 remain pending: no browser is available in this session. No live AI request,
-commit, push or deployment was made. This folder has no Git metadata.
+commit, push or deployment was made. Git metadata is now present; the previous
+integration report describes the earlier session before it was initialized.
 See [the integration report](audit/MASTER_INTEGRATION.md) for exact results,
 limitations and the full changed-file inventory.
 

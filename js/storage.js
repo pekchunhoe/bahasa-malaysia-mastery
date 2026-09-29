@@ -22,6 +22,7 @@ export function freshState() {
     selectedVocabulary: [],
     selectedEssayTitle: {},
     selectedEssayContent: {},
+    writingFilters: {},
     activeDrafts: {},
     drafts: {},
   };
@@ -43,6 +44,12 @@ export function hydrate(raw) {
     }
   if (routes.has(raw.activity)) base.activity = raw.activity;
   if (typeof raw.theme === "string") base.theme = raw.theme.slice(0, 100);
+  if (raw.writingFilters && typeof raw.writingFilters === 'object')
+    for (const [key, filters] of Object.entries(raw.writingFilters)) {
+      if (!/^[1-6]:(essay|paragraph|story)$/.test(key) || !filters || typeof filters !== 'object') continue;
+      base.writingFilters[key] = Object.fromEntries(['query', 'category', 'type']
+        .filter(name => typeof filters[name] === 'string').map(name => [name, filters[name].slice(0, 160)]));
+    }
   if (Array.isArray(raw.selectedVocabulary))
     base.selectedVocabulary = raw.selectedVocabulary
       .filter((x) => typeof x === "string")
@@ -87,6 +94,8 @@ export function hydrate(raw) {
         source_type: "pupil",
         enrichmentVersion: typeof draft.enrichmentVersion === "string" ? draft.enrichmentVersion.slice(0, 100) : "",
         text: draft.text.slice(0, 16000),
+        revisions: Array.isArray(draft.revisions) ? draft.revisions.filter(v => v && typeof v.text === 'string' && Number.isFinite(Date.parse(v.savedAt)))
+          .slice(0, 20).map(v => ({ text: v.text.slice(0, 140000), savedAt: v.savedAt })) : [],
         original:
           typeof draft.original === "string"
             ? draft.original.slice(0, 8000)

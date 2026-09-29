@@ -1,6 +1,7 @@
 import { loadState, saveState } from "./storage.js";
 import { validYear } from "../data/schema/models.js";
 import { navigation } from "./config.js";
+import { writingTopicsFor } from "./essay-service.js";
 export function createStore({
   storage,
   now = () => new Date().toISOString(),
@@ -45,6 +46,16 @@ export function createStore({
       state.theme = String(theme);
       persist();
     },
+    setWritingFilter(activity, name, value) {
+      if (!['essay', 'paragraph', 'story'].includes(activity) || !['query', 'category', 'type'].includes(name)) throw Error('Invalid writing filter');
+      const key = `${state.year}:${activity}`;
+      state.writingFilters[key] = { ...(state.writingFilters[key] || {}), [name]: String(value).slice(0, 160) };
+      persist();
+    },
+    resetWritingFilters(activity) {
+      delete state.writingFilters[`${state.year}:${activity}`];
+      persist();
+    },
     setUnit(unit) {
       if (unit !== "all" && (!Number.isInteger(Number(unit)) || Number(unit) < 1 || Number(unit) > 24))
         throw new Error("Invalid unit");
@@ -70,7 +81,7 @@ export function createStore({
     draft(activity, title, pack, { fresh = false, itemId = "", contentId = "" } = {}) {
       const key = `${state.year}:${activity}`;
       let draft = fresh ? null : state.drafts[state.activeDrafts[key]];
-      const authored = activity === "essay" ? pack.writingTopics : pack.storyStarters;
+      const authored = writingTopicsFor(pack, activity);
       const sameTitle = (authored || []).filter(record => record.title === title);
       const canAdopt = sameTitle.length === 1 && sameTitle[0].id === contentId;
       // Only migrate an unambiguous legacy title. Never guess between starters
@@ -106,13 +117,14 @@ export function createStore({
           enrichmentVersion: pack.enrichmentVersion || "",
           text: "",
           original: "",
+          revisions: [],
           fields: {},
           plan: {},
           lines: [],
           stage: 0,
           updatedAt: now(),
           curriculumId: pack.curriculumId,
-          contentVersion: pack.version,
+          contentVersion: pack.essayTopics?.some(topic => topic.id === contentId) ? pack.essayCatalog.version : pack.version,
         };
         state.drafts[id] = draft;
       }
@@ -133,6 +145,17 @@ export function createStore({
       draft.updatedAt = now();
       persist();
       return draft;
+    },
+    snapshotDraft(id) {
+      const draft = state.drafts[id];
+      if (!draft) throw Error('Unknown draft');
+      const text = draft.activity === 'story' ? [...draft.lines, draft.text].filter(Boolean).join('\n\n') : draft.text;
+      if (!text.trim()) return false;
+      if (draft.revisions.at(-1)?.text === text) return true;
+      if (draft.revisions.length >= 20) return false;
+      draft.revisions.push({ text, savedAt: now() });
+      persist();
+      return true;
     },
     resume(id) {
       const draft = state.drafts[id];

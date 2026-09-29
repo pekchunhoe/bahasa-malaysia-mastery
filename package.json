@@ -9,7 +9,7 @@
     "build": "node tools/build.mjs",
     "test": "node --test tests/*.test.mjs",
     "check": "node tools/check.mjs",
-    "data:prepare": "node tools/import-workbook.mjs",
+    "data:prepare": "node tools/prepare-data.mjs",
     "predev": "npm run data:prepare",
     "pretest": "npm run data:prepare"
   },

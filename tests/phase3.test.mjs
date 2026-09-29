@@ -173,7 +173,7 @@ test("limited surface checker distinguishes empty/capital/punctuation/spacing wi
 });
 
 test("guided stages display authored aids separately; notes and model text never enter AI context", async () => {
-  const { pack, store } = setup(6), topic = pack.writingTopics[0];
+  const { pack, store } = setup(6), topic = pack.writingTopics.find(t => t.id === 'demo-petang');
   topic.model_text = "MODEL_ONLY_MARKER";
   topic.notes_for_teacher = "TEACHER_ONLY_MARKER";
   const draft = store.draft("essay", topic.title, pack, { contentId: topic.id });
@@ -237,7 +237,7 @@ test("legacy title-based drafts adopt an authored identity without losing origin
   restored.updateDraft(expansion.id, { original: "Wrong overwrite", text: "Revisi kedua." });
   assert.equal(restored.state.drafts[expansion.id].original, "Asal saya.");
   assert.equal(restored.state.practice[pack.items[0].id].attempts, 3);
-  assert.equal(hydrate(JSON.parse(storage.getItem(STORAGE_KEY))).drafts[essay.id].contentId, "demo-petang");
+  assert.equal(hydrate(JSON.parse(storage.getItem(STORAGE_KEY))).drafts[essay.id].contentId, pack.writingTopics[0].id);
 });
 
 test("paragraph, essay and story never assemble imlak or vocabulary examples into pupil writing", () => {
@@ -351,7 +351,7 @@ test("unambiguous migration is durable, preserves other storage keys and tolerat
 test("guided-writing optional metadata stays absent and legitimate sample titles remain intact", () => {
   const content = normalize({ ...empty(), guidedWriting: [{ ...demo, id: "minimal-essay", year: 2, title: "Tajuk pilihan" }] });
   const pack = getCurriculumPack(2, "master-2026", content), { store } = setup(2);
-  const topic = pack.writingTopics[0], draft = store.draft("essay", topic.title, pack, { contentId: topic.id });
+  const topic = pack.writingTopics.find(t => t.id === 'minimal-essay'), draft = store.draft("essay", topic.title, pack, { contentId: topic.id });
   assert.equal(topic.theme, undefined);
   assert.equal(topic.unit, undefined);
   assert.equal(topic.prompt, undefined);
@@ -359,5 +359,5 @@ test("guided-writing optional metadata stays absent and legitimate sample titles
     draft.stage = stage;
     assert.ok(!activityRegistry.essay.render({ pack, draft, state: store.state }).includes("undefined"));
   }
-  assert.deepEqual(getCurriculumPack(2).writingTopics.map(t => t.title), ["Petang Bersama Rakan", "Taman yang Bersih"]);
+  assert.deepEqual(getCurriculumPack(2).writingTopics.filter(t => t.source_type === 'demo').map(t => t.title), ["Petang Bersama Rakan", "Taman yang Bersih"]);
 });

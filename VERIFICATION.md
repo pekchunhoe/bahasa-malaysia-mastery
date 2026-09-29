@@ -1,4 +1,28 @@
-# Current master integration verification ? 28 September 2026
+# Current essay integration verification — 29 September 2026
+
+- 1,000 complete, unique IDs/titles/examples; counts by year:
+  **100 / 140 / 160 / 180 / 220 / 200**. Zero excluded records or word-count mismatches.
+- `npm test`: **103 pass, 0 fail** (94 passed before continuation changes). Coverage includes all Excel mappings,
+  reordering/corrections/new rows, year/category/type filters, closed examples,
+  genre guidance, saved revisions, legacy drafts, error/empty states and app
+  controller navigation/reload. Added checks cover automatic snapshots before AI
+  guidance, the 20-version warning, and year changes/empty filters across all three
+  writing activities. AI interactions use test doubles; no live AI requests.
+- `npm run check`, `npm run build` and Git whitespace checks pass.
+- The prior 1,080 ejaan/imlak integration and its regression tests remain intact.
+- Production HTTP verification passed: 40 assets match build bytes, 87 relative
+  module imports resolve, private sources are blocked, and all 1,000 built essays
+  match generated source data. Build: `bmMastery-cd3192302dc0`.
+- The essay workbook SHA-256 is unchanged from the start of this continuation:
+  `ca1e5219ff8241c13b7873e728a3cab5088e00172389395520298a8a7019b445`.
+- Browser discovery was retried and returned an empty list. Phone/tablet/desktop visual QA and
+  actual browser reload remain pending; DOM/controller tests are not visual QA.
+- No commit, push or deploy. Full inventory and audit:
+  [KARANGAN_INTEGRATION.md](audit/KARANGAN_INTEGRATION.md).
+
+---
+
+# Previous master integration verification — 28 September 2026
 
 **Implementation and automated checks pass; visual browser acceptance is pending.**
 

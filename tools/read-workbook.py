@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 
-def read_workbook(filename):
+def read_workbook(filename, table_names=("MASTER_CONTENT", "ENRICHMENT", "VOCAB_FOCUS"), primary="MASTER_CONTENT"):
     with zipfile.ZipFile(filename) as archive:
         shared = []
         if "xl/sharedStrings.xml" in archive.namelist():
@@ -26,7 +26,7 @@ def read_workbook(filename):
             for row in ET.fromstring(archive.read(target)).findall(".//m:sheetData/m:row", NS):
                 values = {}
                 for cell in row:
-                    if cell.find("m:f", NS) is not None and sheet.get("name") in ("MASTER_CONTENT", "ENRICHMENT", "VOCAB_FOCUS"):
+                    if cell.find("m:f", NS) is not None and sheet.get("name") in table_names:
                         raise ValueError("Content tables must contain values, not cached formulas")
                     value = cell.find("m:v", NS)
                     text = value.text if value is not None else "".join(t.text or "" for t in cell.findall(".//m:t", NS))
@@ -37,18 +37,19 @@ def read_workbook(filename):
                     values["".join(c for c in cell.get("r") if c.isalpha())] = text or ""
                 rows.append(values)
             sheets.append({"name": sheet.get("name"), "rows": len(rows)})
-            if sheet.get("name") in ("MASTER_CONTENT", "ENRICHMENT", "VOCAB_FOCUS"):
+            if sheet.get("name") in table_names:
                 headers = rows[0]
                 if len(set(headers.values())) != len(headers):
-                    raise ValueError("Duplicate MASTER_CONTENT headers")
+                    raise ValueError("Duplicate headers in " + sheet.get("name"))
                 tables[sheet.get("name")] = {"headers": list(headers.values()), "rows": [
                     {header: row.get(column, "") for column, header in headers.items()}
                     for row in rows[1:] if any(row.values())]}
-        master = tables.get("MASTER_CONTENT")
+        master = tables.get(primary)
         if master is None:
-            raise ValueError("Missing MASTER_CONTENT sheet")
+            raise ValueError("Missing sheet: " + primary)
         return {"sheets": sheets, **master, "tables": tables}
 
 
 if __name__ == "__main__":
-    print(json.dumps(read_workbook(sys.argv[1]), ensure_ascii=True))
+    selected = sys.argv[2] if len(sys.argv) > 2 else None
+    print(json.dumps(read_workbook(sys.argv[1], (selected,), selected) if selected else read_workbook(sys.argv[1]), ensure_ascii=True))

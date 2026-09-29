@@ -107,6 +107,10 @@ test("HTTP server serves the module graph and blocks server files and secrets", 
       "/data/demo/content.js",
       "/components/ai-teacher.js",
       "/activities/writing.js",
+      "/activities/master-writing.js",
+      "/components/essay-catalog.js",
+      "/js/essay-service.js",
+      "/data/generated/essays.js",
     ]) {
       const response = await fetch(base + resource);
       assert.equal(response.status, 200, resource);
@@ -125,6 +129,9 @@ test("HTTP server serves the module graph and blocks server files and secrets", 
       "/data/BM_MASTER_EJAAN_IMLAK_2026_MUKTAMAD.xlsx",
       "/audit/workbook.json",
       "/data/adapters/excel.js",
+      "/data/BM_MASTER_KARANGAN_1000_TAHAP_KERJA.xlsx",
+      "/data/adapters/essays.js",
+      "/audit/essays.json",
     ])
       assert.equal((await fetch(base + resource)).status, 403, resource);
     assert.equal(

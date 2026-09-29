@@ -1,4 +1,32 @@
-# Current master integration ? 28 September 2026
+# Current essay integration — 28 September 2026
+
+The current importer entry point is `tools/prepare-data.mjs`: it runs the existing
+ejaan/imlak import and `tools/import-essays.mjs`. The shared OOXML reader accepts
+the actual worksheet name; `data/adapters/essays.js` maps MASTER_KARANGAN's 13
+columns to stable-ID writing records. Source status and exact model text remain
+unchanged. Incomplete records are reported and excluded; invalid identities or
+word counts fail import. Only generated data reaches the browser.
+
+`js/essay-service.js` loads and validates the optional essay module with a caught
+error boundary. Curriculum packs expose master essay/paragraph topics and only
+narrative topics for stories. Legacy demo records remain available by their IDs.
+`components/essay-catalog.js` renders separate category/type/search filters and
+closed reference disclosures. `activities/master-writing.js` adds year/genre
+guidance through `js/writing-guidance.js`, using existing editors and controls.
+
+The existing v1 storage key is unchanged. `writingFilters` are scoped by year and
+activity. Optional `revisions` preserve snapshots separately from current text;
+legacy drafts hydrate without losing IDs, plans, originals or progress. Source
+essays never enter draft creation or update functions. Essay-stage revision also
+captures the current text before editing. Exports include saved versions.
+
+See [the essay integration report](audit/KARANGAN_INTEGRATION.md). The earlier
+sections below describe the previous integrations; the two demo essay titles
+are now compatibility content rather than the default writing catalog.
+
+---
+
+# Previous master integration — 28 September 2026
 
 This section supersedes the historical Phase 3 description below where content
 sources, the upper-year vocabulary bank and disclosure behaviour differ.

@@ -7,6 +7,7 @@ import { normalizeVocabulary, validYear } from "../data/schema/models.js";
 import { difficultyFor } from "../data/difficulty.js";
 import { master } from "../data/generated/master.js";
 import { supplementaryFor, attachEnrichment } from "./enrichment-service.js";
+import { essaysForYear, isNarrative } from "./essay-service.js";
 const sources = new Map([
   [
     "demo",
@@ -45,6 +46,8 @@ export function getCurriculumPack(year, curriculumId = "master-2026", supplement
   if (!source) throw new Error("Unknown curriculum");
   const items = filterItems(source.items || [], { year });
   const supplemental = source.items ? supplementaryFor(year, supplementaryContent) : null;
+  const essays = source.items ? essaysForYear(year) : { status: 'ready', items: [], version: '' };
+  const essayTopics = essays.items.map(t => ({ ...t, genre: t.writing_type, yearMin: year, yearMax: year }));
   const words = source.items ? items.filter(i => i.type === "ejaan" || supplemental.enrichment[i.id]?.word).map(i => ({
     ...i, word: supplemental.enrichment[i.id]?.word || i.text,
     audioText: supplemental.enrichment[i.id]?.word || i.text, yearMin: i.year, yearMax: i.year,
@@ -57,12 +60,15 @@ export function getCurriculumPack(year, curriculumId = "master-2026", supplement
     curriculumId,
     version: source.version,
     enrichmentVersion: supplemental?.version || "",
+    essayCatalog: { status: essays.status, message: essays.message || '', version: essays.version, count: essayTopics.length },
+    essayTopics,
+    paragraphTopics: essayTopics,
     year,
     demo: source.demo === true,
     items,
     units: [...new Map(items.map(i => [i.unitNo, { no: i.unitNo, title: i.unit, theme: i.theme }])).values()],
     themes: [...new Set((source.items ? items : words).map((w) => w.theme).filter(Boolean))],
-    writingDemo: source.writingDemo === true,
+    writingDemo: !essayTopics.length && source.writingDemo === true,
     vocabularySource: source.demo ? "data/demo/content.js" : source.reference,
     vocabulary: supplemental ? [
       ...attachEnrichment(words, supplemental.enrichment).map(w => ({ ...w,
@@ -74,12 +80,12 @@ export function getCurriculumPack(year, curriculumId = "master-2026", supplement
       })),
     ] : words,
     enrichment: supplemental?.enrichment || {},
-    storyStarters: supplemental?.storyStarters || [],
+    storyStarters: [...essayTopics.filter(isNarrative), ...(supplemental?.storyStarters || [])],
     activitySets: source.activitySets,
-    writingTopics: supplemental ? supplemental.guidedWriting.map(t => ({
+    writingTopics: supplemental ? [...essayTopics, ...supplemental.guidedWriting.map(t => ({
       ...t, genre: t.writing_type, questions: t.planning_questions || [],
       yearMin: year, yearMax: year,
-    })) : source.writingTopics.filter(
+    }))] : source.writingTopics.filter(
       (t) => t.yearMin <= year && t.yearMax >= year,
     ),
     difficultyProfile: difficultyFor(year),

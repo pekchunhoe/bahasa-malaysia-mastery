@@ -3,14 +3,17 @@ import { mkdir, cp, readdir, writeFile, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { importWorkbook } from "./import-workbook.mjs";
-await importWorkbook();
+import { prepareData } from "./prepare-data.mjs";
+await prepareData();
 const { getCurriculumPack } = await import("../js/curriculum-service.js");
 const root = fileURLToPath(new URL("..", import.meta.url)),
   out = path.join(root, "dist");
 if (path.dirname(out) !== path.resolve(root) || path.basename(out) !== "dist")
   throw new Error("Invalid output directory");
-for (let year = 1; year <= 6; year++) getCurriculumPack(year);
+for (let year = 1; year <= 6; year++) {
+  const pack = getCurriculumPack(year);
+  if (pack.essayCatalog.status !== 'ready') throw Error('Essay catalog failed runtime validation');
+}
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
 for (const name of [
