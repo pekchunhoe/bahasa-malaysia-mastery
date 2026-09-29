@@ -21,6 +21,16 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     if (!nodes.has(selector)) nodes.set(selector, { innerHTML: '', textContent: '', value: '', dataset: {}, classList: { toggle() {}, add() {}, remove() {} }, focus() {}, querySelector: node, showModal() { this.open = true; }, close() { this.open = false; this.onclose?.(); }, remove() { this.removed = true; } });
     return nodes.get(selector);
   };
+  // Mirror the four real textarea values when the app renders a new title.
+  let rendered = '';
+  Object.defineProperty(node('#app'), 'innerHTML', { get: () => rendered, set(html) {
+    rendered = html;
+    for (const match of html.matchAll(/<textarea id="essay-paragraph-(\d)"[^>]*>([\s\S]*?)<\/textarea>/g)) {
+      const editor = node(`#essay-paragraph-${match[1]}`);
+      editor.dataset = { essayParagraph: match[1] };
+      editor.value = match[2].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+    }
+  } });
   const globals = {
     localStorage: storage,
     location: { hash: `#${activity}` },
@@ -42,10 +52,79 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
   await import(`../js/app.js?controller=${++instance}`);
   const root = node('#app');
   const click = dataset => root.onclick({ target: { closest: () => ({ dataset, disabled: false }) } });
-  const type = value => root.oninput({ target: { dataset: { draftField: 'text' }, value } });
+  const type = value => {
+    if (activity === 'essay') {
+      const editor = node('#essay-paragraph-1'); editor.value = value;
+      root.oninput({ target: editor });
+    } else root.oninput({ target: { dataset: { draftField: 'text' }, value } });
+  };
   const state = () => JSON.parse(storage.getItem(STORAGE_KEY));
   return { root, node, click, type, state, spoken, requests, events, pack, storage };
 }
+
+test('paragraph controllers combine live edits, scope every AI action, restore titles and protect drafts on API failure', async t => {
+  const h = await appHarness(t, { year: 4, activity: 'essay' });
+  const values = ['Satu_MARKER.', 'Dua_MARKER.', 'Tiga_MARKER.', 'Empat_MARKER.'];
+  const id = h.state().activeDrafts['4:essay'];
+  const firstTitle = h.state().drafts[id].title;
+  const firstContent = h.state().drafts[id].contentId;
+  const setParagraph = (index, value, input = true) => {
+    const area = h.node(`#essay-paragraph-${index}`); area.value = value;
+    if (input) h.root.oninput({ target: area });
+  };
+  values.forEach((value, i) => {
+    setParagraph(i + 1, value);
+    assert.equal(h.node('#student-text').value, values.slice(0, i + 1).join('\n\n'));
+  });
+  setParagraph(3, 'Tiga_MARKER draf langsung', false);
+  values[2] = 'Tiga_MARKER draf langsung';
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  for (let index = 1; index <= 4; index++) {
+    for (const action of ['sentence_hint', 'vocabulary_help', 'essay_next_step', 'paragraph_review']) {
+      h.click({ ai: action, aiParagraph: String(index) });
+      await settle();
+      if (action === 'paragraph_review') {
+        const prompt = h.node('#teacher-result').innerHTML;
+        for (let i = 0; i < 4; i++) assert.equal(prompt.includes(values[i]), i < index);
+      } else {
+        const [url, options] = h.requests.at(-1);
+        assert.equal(url, '/api/gemini');
+        const request = JSON.parse(options.body);
+        assert.equal(request.title, firstTitle);
+        assert.equal(request.studentText, values[index - 1]);
+        assert.deepEqual(request.previousParagraphs, values.slice(0, index - 1));
+        for (let i = index; i < 4; i++) assert.ok(!options.body.includes(values[i]));
+        assert.match(h.node('#teacher-result').innerHTML, /role="alert"/);
+      }
+      h.node('#modal').close();
+      assert.deepEqual(h.state().drafts[id].paragraphs, values);
+    }
+  }
+  // A cleared live textarea must never fall back to stale saved writing.
+  setParagraph(3, '', false);
+  h.click({ ai: 'essay_next_step', aiParagraph: '3' }); await settle();
+  assert.equal(JSON.parse(h.requests.at(-1)[1].body).studentText, '');
+  assert.equal(h.state().drafts[id].paragraphs[2], '');
+  h.node('#modal').close();
+  setParagraph(3, values[2]);
+  h.click({ ai: 'essay_review' }); await settle();
+  const fullPrompt = h.node('#teacher-result').innerHTML;
+  for (const value of values) assert.ok(fullPrompt.includes(value));
+  h.node('#modal').close();
+  const nextTopic = h.pack.essayTopics.find(topic => topic.id !== firstContent);
+  h.root.onchange({ target: { id: 'writing-topic-select', dataset: {}, value: nextTopic.id } });
+  h.click({ ai: 'essay_next_step', aiParagraph: '2' }); await settle();
+  const nextRequest = JSON.parse(h.requests.at(-1)[1].body);
+  assert.equal(nextRequest.title, nextTopic.title);
+  assert.equal(nextRequest.studentText, '');
+  assert.deepEqual(nextRequest.previousParagraphs, ['']);
+  h.node('#modal').close();
+  h.root.onchange({ target: { id: 'writing-topic-select', dataset: {}, value: firstContent } });
+  assert.deepEqual(h.state().drafts[id].paragraphs, values);
+  const loaded = await appHarness(t, { year: 4, activity: 'essay', savedStorage: h.storage });
+  assert.deepEqual(loaded.state().drafts[id].paragraphs, values);
+  values.forEach((value, i) => assert.equal(loaded.node(`#essay-paragraph-${i + 1}`).value, value));
+});
 
 test('real practice controllers check both years locally, replay, reveal and reset without Gemini or hint leakage', async t => {
   for (const year of [1, 4]) await t.test(`Tahun ${year}`, async t => {

@@ -2,6 +2,7 @@ import { loadState, saveState } from "./storage.js";
 import { validYear } from "../data/schema/models.js";
 import { navigation } from "./config.js";
 import { writingTopicsFor } from "./essay-service.js";
+import { essayParagraphs, combineEssay, validParagraphs, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
 export function createStore({
   storage,
   now = () => new Date().toISOString(),
@@ -116,6 +117,7 @@ export function createStore({
           source_type: "pupil",
           enrichmentVersion: pack.enrichmentVersion || "",
           text: "",
+          ...(activity === 'essay' ? { paragraphs: ['', '', '', ''] } : {}),
           original: "",
           revisions: [],
           fields: {},
@@ -136,6 +138,13 @@ export function createStore({
     updateDraft(id, changes) {
       const draft = state.drafts[id];
       if (!draft) throw new Error("Unknown draft");
+      if (draft.activity === 'essay' && ('paragraphs' in changes || 'text' in changes)) {
+        const paragraphs = 'paragraphs' in changes ? changes.paragraphs : essayParagraphs({ text: changes.text });
+        if (!validParagraphs(paragraphs) || combineEssay(paragraphs).length > MAX_ESSAY_TEXT)
+          throw new Error('Karangan melebihi had 16,000 aksara.');
+        draft.paragraphs = [...paragraphs];
+        changes = { ...changes, text: combineEssay(paragraphs) };
+      }
       for (const key of ["text", "fields", "plan", "stage", "lines"])
         if (Object.hasOwn(changes, key))
           draft[key] = structuredClone(changes[key]);

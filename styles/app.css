@@ -1250,6 +1250,13 @@ dialog::backdrop {
 .ai-hint-result h3 {
   margin: 18px 0 8px;
 }
+.essay-paragraphs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px; }
+.essay-paragraph, .essay-combined { min-width: 0; }
+.essay-paragraph { padding-bottom: 22px; border-bottom: 1px solid var(--color-border); }
+.essay-paragraph textarea { font-size: 16px; }
+.essay-paragraph .teacher-actions { display: flex; flex-direction: row; flex-wrap: wrap; }
+.essay-paragraph .button { min-height: 44px; white-space: normal; text-align: left; max-width: 100%; }
+.essay-combined textarea[readonly] { background: var(--color-surface-soft); }
 .ai-hint-result h4 {
   color: var(--color-primary-strong);
 }

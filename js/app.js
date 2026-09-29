@@ -20,6 +20,7 @@ import { vocabularyCards } from "../activities/vocabulary.js";
 import { watchForDeploymentUpdate } from "./deployment-version.js";
 import { writingTopicsFor } from "./essay-service.js";
 import { topicResults, revisionHistory } from "../components/essay-catalog.js";
+import { essayParagraphs, combineEssay, buildEssayParagraphContext, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
 
 const store = createStore(),
   ai = createAIService();
@@ -123,6 +124,10 @@ function updateWritingUI() {
     target = document.querySelector("#writing-count");
   if (target)
     target.textContent = `${count.words} perkataan · ${count.sentences} ayat`;
+  if (draft.activity === 'essay') {
+    const preview = document.querySelector('#student-text');
+    if (preview) preview.value = draft.text;
+  }
 }
 function write(changes) {
   draft = store.updateDraft(draft.id, changes);
@@ -177,8 +182,24 @@ function currentEditorText() {
   // exposes an empty placeholder node instead of the real editor value.
   return editor && (editor.value || !savedText) ? editor.value : savedText;
 }
-function aiRequest(action, word) {
-  const editorText = word ? "" : currentEditorText();
+function liveEssayParagraphs() {
+  return essayParagraphs(draft).map((text, i) => {
+    const area = document.querySelector(`#essay-paragraph-${i + 1}`);
+    return area?.dataset.essayParagraph === String(i + 1) ? area.value : text;
+  });
+}
+function syncEssayEditors() {
+  const paragraphs = liveEssayParagraphs();
+  if (combineEssay(paragraphs).length > MAX_ESSAY_TEXT) {
+    toast('Karangan melebihi had 16,000 aksara. Pendekkan tulisan sebelum meminta bimbingan.');
+    return false;
+  }
+  if (JSON.stringify(paragraphs) !== JSON.stringify(draft.paragraphs)) write({ paragraphs });
+  return true;
+}
+function aiRequest(action, word, paragraphIndex) {
+  if (!word && draft?.activity === 'essay' && !syncEssayEditors()) return;
+  const editorText = word ? "" : draft?.activity === 'essay' ? draft.text : currentEditorText();
   if (!word && draft && editorText !== draft.text)
     draft = store.updateDraft(draft.id, { text: editorText });
   const latestText = word
@@ -188,7 +209,7 @@ function aiRequest(action, word) {
       : editorText;
   const studentText =
     word?.word ||
-    (action === "paragraph_review" && store.state.activity === "essay"
+    (action === "paragraph_review" && store.state.activity === "essay" && !paragraphIndex
       ? paragraphSelection || latestText
       : latestText);
   if (!word && ['essay', 'paragraph', 'story'].includes(draft?.activity) && latestText.trim()) {
@@ -213,6 +234,9 @@ function aiRequest(action, word) {
       ...(store.state.activity === "essay" ? { stage: draft.stage } : {}),
       itemId: word?.id || draft?.itemId || "",
       ...(word || !["sentence", "expansion"].includes(store.state.activity) ? {} : { referenceText: selectedItem(pack, store.state, draft)?.text || "" }),
+      ...(!word && draft?.activity === 'essay' && paragraphIndex
+        ? buildEssayParagraphContext({ title: store.state.selectedEssayTitle[store.state.year] || draft.title,
+            year: store.state.year, paragraphIndex, paragraphs: essayParagraphs(draft) }) : {}),
     },
   });
 }
@@ -236,7 +260,21 @@ function bind() {
   const root = document.querySelector("#app");
   root.oninput = (event) => {
     const target = event.target;
-    if (target.dataset.draftField === "text") {
+    if (target.dataset.essayParagraph && draft?.activity === 'essay') {
+      const index = Number(target.dataset.essayParagraph) - 1;
+      if (!Number.isInteger(index) || index < 0 || index > 3) return;
+      const paragraphs = essayParagraphs(draft);
+      paragraphs[index] = target.value;
+      if (combineEssay(paragraphs).length > MAX_ESSAY_TEXT) {
+        target.value = essayParagraphs(draft)[index];
+        toast('Ruang tulisan telah penuh (16,000 aksara). Muat turun draf sebelum memendekkan tulisan.');
+        return;
+      }
+      write({ paragraphs });
+      const feedback = document.querySelector('#local-feedback');
+      if (feedback) feedback.textContent = '';
+    }
+    if (target.dataset.draftField === "text" && draft?.activity !== 'essay') {
       write({ text: target.value });
       const localFeedback = document.querySelector("#local-feedback");
       if (localFeedback) localFeedback.textContent = "";
@@ -386,7 +424,7 @@ function bind() {
       write({ fields: { ...draft.fields, feedback: JSON.stringify(feedback), checkedText: draft.text } });
       render();
     }
-    if (d.ai) aiRequest(d.ai);
+    if (d.ai) aiRequest(d.ai, undefined, d.aiParagraph ? Number(d.aiParagraph) : undefined);
     if (d.wordAi || d.wordExample) {
       const word = pack.vocabulary.find(
         (w) => w.id === (d.wordAi || d.wordExample),
@@ -466,6 +504,12 @@ function bind() {
       render();
     }
     if ("nextParagraph" in d) {
+      if (draft.activity === 'essay') {
+        const paragraphs = essayParagraphs(draft);
+        const next = paragraphs.findIndex(p => !p.trim());
+        document.querySelector(`#essay-paragraph-${next < 0 ? 4 : next + 1}`)?.focus();
+        return;
+      }
       if (draft.text.length > 15998) {
         toast(
           "Ruang tulisan telah penuh. Muat turun draf sebelum memulakan tulisan baharu.",
