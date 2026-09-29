@@ -170,13 +170,28 @@ function read(text) {
   )
     toast("Bacaan suara tidak tersedia atau teks masih kosong.");
 }
+function currentEditorText() {
+  const editor = document.querySelector("#student-text");
+  const savedText = draft?.text || "";
+  // Input events save immediately; retain that value if a non-browser boundary
+  // exposes an empty placeholder node instead of the real editor value.
+  return editor && (editor.value || !savedText) ? editor.value : savedText;
+}
 function aiRequest(action, word) {
+  const editorText = word ? "" : currentEditorText();
+  if (!word && draft && editorText !== draft.text)
+    draft = store.updateDraft(draft.id, { text: editorText });
+  const latestText = word
+    ? ""
+    : draft?.activity === "story"
+      ? [...draft.lines, editorText].filter(Boolean).join("\n\n")
+      : editorText;
   const studentText =
     word?.word ||
     (action === "paragraph_review" && store.state.activity === "essay"
-      ? paragraphSelection || draft.text
-      : draftText(draft));
-  if (!word && ['essay', 'paragraph', 'story'].includes(draft?.activity) && draftText(draft).trim()) {
+      ? paragraphSelection || latestText
+      : latestText);
+  if (!word && ['essay', 'paragraph', 'story'].includes(draft?.activity) && latestText.trim()) {
     preserveWritingVersion();
     const history = document.querySelector('#writing-revisions');
     if (history) history.outerHTML = revisionHistory(draft);
@@ -188,9 +203,14 @@ function aiRequest(action, word) {
       action,
       activity: word ? "vocabulary" : store.state.activity,
       year: store.state.year,
-      title: word ? "" : draft.title,
+      title: word
+        ? ""
+        : store.state.activity === "essay"
+          ? store.state.selectedEssayTitle?.[store.state.year] || draft.title
+          : draft.title,
       studentText,
       ...(draft?.contentId && ["essay", "story"].includes(store.state.activity) ? { contentId: draft.contentId } : {}),
+      ...(store.state.activity === "essay" ? { stage: draft.stage } : {}),
       itemId: word?.id || draft?.itemId || "",
       ...(word || !["sentence", "expansion"].includes(store.state.activity) ? {} : { referenceText: selectedItem(pack, store.state, draft)?.text || "" }),
     },

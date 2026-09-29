@@ -1,4 +1,8 @@
-import { buildTutorPrompt, feedbackSchema } from "../js/tutor-actions.js";
+import {
+  buildTutorPrompt,
+  essayHintFeedbackSchema,
+  feedbackSchema,
+} from "../js/tutor-actions.js";
 import { TeacherError, MAX_OUTPUT } from "./ai-contract.js";
 export const TIMEOUT_MS = 35000;
 // Same SDK and Interactions route as the source project; server configuration only.
@@ -25,7 +29,10 @@ export async function generateTeachingResult(input, { apiKey, env, signal }) {
       response_format: {
         type: "text",
         mime_type: "application/json",
-        schema: feedbackSchema,
+        schema:
+          input.action === "essay_next_step"
+            ? essayHintFeedbackSchema
+            : feedbackSchema,
       },
       generation_config: { max_output_tokens: route.maxTokens },
     },

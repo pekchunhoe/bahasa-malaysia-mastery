@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTeacherHandler } from "../server/ai-handler.js";
 import { createAIService } from "../js/ai-teacher.js";
-import { actionActivities, buildTutorPrompt, tutorActions, tutorRequest } from "../js/tutor-actions.js";
+import { actionActivities, buildTutorPrompt, essayHintFeedbackSchema, tutorActions, tutorRequest } from "../js/tutor-actions.js";
 import endpoint from "../api/gemini.js";
 import legacyEndpoint from "../api/ai/tutor.js";
 import { openTeacher } from "../components/ai-teacher.js";
@@ -67,6 +67,8 @@ test("every direct action traverses frontend, shared handler and real SDK with o
     assert.equal(sent.store, false);
     assert.equal(sent.response_format.mime_type, "application/json");
     assert.equal(sent.generation_config.max_output_tokens, 900);
+    if (action === "essay_next_step")
+      assert.deepEqual(sent.response_format.schema, essayHintFeedbackSchema);
   }
   assert.equal(captured.length, 8);
 });
@@ -140,7 +142,15 @@ test("teacher buttons render feedback/errors and copy external prompts without c
   const node = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
       innerHTML: "", textContent: "", disabled: false,
-      querySelector: node, classList: { add() {}, remove() {} },
+      dataset: { copyExample: /^\[data-copy-example="(\d+)"\]$/.exec(selector)?.[1] },
+      setAttribute() {},
+      querySelector: node,
+      querySelectorAll(selector) {
+        return selector === "[data-copy-example]"
+          ? [node('[data-copy-example="0"]'), node('[data-copy-example="1"]')]
+          : [];
+      },
+      classList: { add() {}, remove() {} },
       showModal() { this.open = true; }, close() { this.open = false; this.onclose?.(); },
     });
     return nodes.get(selector);
@@ -175,6 +185,30 @@ test("teacher buttons render feedback/errors and copy external prompts without c
     await node("#teacher-run").onclick();
     assert.deepEqual(store.state, saved);
   }
+  const hintFeedback = {
+    ok: true,
+    summary: "Kamu sudah memperkenalkan suasana pagi itu dengan baik.",
+    suggestions: ["Ceritakan acara yang kamu sertai."],
+    questions: ["Siapakah yang memberi sokongan kepada kamu?"],
+    examples: ["Saya berbaris di hadapan padang.", "Rakan-rakan saya bersorak dengan kuat."],
+  };
+  const hintService = createAIService({
+    fetcher: async () => Response.json({ ok: true, action: "essay_next_step", data: hintFeedback }),
+  });
+  const hintRequest = input("essay_next_step", {
+    activity: "essay",
+    title: "Hari Sukan Sekolah Saya",
+    studentText: "Pada pagi itu, saya memakai baju sukan biru.",
+  });
+  openTeacher({ service: hintService, request: hintRequest, store });
+  await settle();
+  assert.match(node("#teacher-result").innerHTML, /Kamu boleh sambung dengan/);
+  assert.match(node("#teacher-result").innerHTML, /Contoh ayat/);
+  assert.equal((node("#teacher-result").innerHTML.match(/data-copy-example/g) || []).length, 2);
+  await node('[data-copy-example="0"]').onclick();
+  assert.equal(copied, hintFeedback.examples[0]);
+  assert.equal(node('[data-copy-example="0"]').textContent, "Disalin ✓");
+  assert.deepEqual(store.state, saved);
   assert.equal(calls, 3);
   service.clearCache();
   fail = true;
