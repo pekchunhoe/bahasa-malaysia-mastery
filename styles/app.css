@@ -1257,6 +1257,11 @@ dialog::backdrop {
 .essay-paragraph .teacher-actions { display: flex; flex-direction: column; }
 .essay-paragraph .button { min-height: 44px; white-space: normal; text-align: left; max-width: 100%; }
 .essay-combined textarea[readonly] { background: var(--color-surface-soft); }
+.combined-copy { margin: 12px 0; }
+.combined-copy .button { min-height: 44px; white-space: normal; }
+.guidance-copy { margin: 12px 0; }
+.guidance-copy .small-button { min-height: 44px; }
+.guidance-summary { white-space: pre-wrap; }
 .ai-hint-result h4 {
   color: var(--color-primary-strong);
 }

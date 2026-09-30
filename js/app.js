@@ -128,6 +128,8 @@ function updateWritingUI() {
   if (draft.activity === 'essay') {
     const preview = document.querySelector('#student-text');
     if (preview) preview.value = draft.text;
+    const copyButton = document.querySelector('[data-copy-combined-essay]');
+    if (copyButton) copyButton.disabled = !draft.text.trim();
   }
 }
 function write(changes) {
@@ -188,6 +190,9 @@ function liveEssayParagraphs() {
     const area = document.querySelector(`#essay-paragraph-${i + 1}`);
     return area?.dataset.essayParagraph === String(i + 1) ? area.value : text;
   });
+}
+function liveCombinedEssay() {
+  return combineEssay(liveEssayParagraphs()).trim();
 }
 function syncEssayEditors() {
   const paragraphs = liveEssayParagraphs();
@@ -430,6 +435,14 @@ function bind() {
     }
     if (d.ai) aiRequest(d.ai, undefined, d.aiParagraph ? Number(d.aiParagraph) : undefined);
     if (d.janaPrompt) return aiRequest(d.janaPrompt, undefined, Number(d.promptParagraph), button);
+    if ('copyCombinedEssay' in d) {
+      const text = liveCombinedEssay();
+      if (!text) {
+        toast('Tulis karangan dahulu sebelum menyalin.');
+        return;
+      }
+      return copyWithConfirmation(button, text).catch(() => toast('Tidak dapat menyalin sekarang. Cuba lagi.'));
+    }
     if (d.wordAi || d.wordExample) {
       const word = pack.vocabulary.find(
         (w) => w.id === (d.wordAi || d.wordExample),

@@ -162,6 +162,38 @@ for (const action of essayExampleActions) test(`${action}: separate labelled car
   assert.deepEqual(store.state, before);
 });
 
+test('Beri saya petunjuk has an exact, multiline copy control for P1–P4 without changing writing', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { node, copied } = modalHarness(t);
+  const feedback = { ok: true, summary: 'Ceritakan apa yang berlaku selepas pertandingan.\nNyatakan perasaan kamu.',
+    errors: [], suggestions: ['Hubungkan cerita dengan pengalaman sebelumnya.'],
+    explanation: 'Pilih idea yang sesuai dengan cerita kamu.', example: null };
+  const expected = `${feedback.summary}\n${feedback.suggestions[0]}\n${feedback.explanation}`;
+  const service = createAIService({ fetcher: async () => Response.json({ ok: true, action: 'sentence_hint', data: feedback }) });
+  for (let paragraphIndex = 1; paragraphIndex <= 4; paragraphIndex++) {
+    const request = raw('sentence_hint', { paragraphIndex,
+      previousParagraphs: Array.from({ length: paragraphIndex - 1 }, (_, i) => `Perenggan terdahulu ${i + 1}.`),
+      studentText: `Draf Perenggan ${paragraphIndex}.` });
+    const store = { runtime: { ai: 'idle' }, state: { draft: { paragraphs: [...request.previousParagraphs, request.studentText, 'Tidak berubah.'] } } };
+    const before = structuredClone(store.state);
+    openTeacher({ service, request, store }); await settle();
+    const html = node('#teacher-result').innerHTML, control = node('[data-copy-guidance]');
+    assert.match(html, /data-copy-guidance/);
+    assert.match(html, /type="button"/);
+    assert.match(html, /guidance-summary/);
+    assert.match(html, new RegExp(`aria-label="Salin petunjuk Perenggan ${paragraphIndex}"`));
+    await control.onclick();
+    assert.equal(copied.at(-1), expected);
+    assert.equal(control.textContent, 'Disalin ✓');
+    assert.deepEqual(store.state, before);
+    t.mock.timers.tick(1800);
+    assert.equal(control.textContent, 'Salin');
+    await control.onclick();
+    assert.equal(copied.at(-1), expected);
+    assert.deepEqual(store.state, before);
+  }
+});
+
 test('minimal results render safely; malformed results show retryable errors and escape markup', async t => {
   const { node } = modalHarness(t), store = { runtime: { ai: 'idle' } }, request = raw();
   let response = { ok: true, summary: '<script>no()</script>', examples: [{ type: 'sentence', text: '<img src=x onerror=no()>' }] };
@@ -223,4 +255,5 @@ test('responsive CSS keeps action pairs and example cards wrapping with touch ta
   assert.match(css, /\.teacher-action-pair > \[data-jana-prompt\] \{ flex: 1 1 100%/);
   assert.match(css, /\.ai-example-text \{[^}]*min-width: 0; overflow-wrap: anywhere/);
   assert.match(css, /\.ai-example-sentence \.small-button \{ min-height: 44px/);
+  assert.match(css, /\.guidance-copy \.small-button \{ min-height: 44px/);
 });

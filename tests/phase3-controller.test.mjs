@@ -185,6 +185,40 @@ test('every paragraph Jana Prompt copies immediately from the same live source a
   }
 });
 
+test('Karangan Lengkap copies the live combined essay with clean paragraph spacing and no draft mutation', async t => {
+  const h = await appHarness(t, { year: 4, activity: 'essay' });
+  assert.match(h.root.innerHTML, /data-copy-combined-essay/);
+  assert.match(h.root.innerHTML, /aria-label="Salin Karangan Lengkap"/);
+  const button = h.node('[data-copy-combined-essay]');
+  button.textContent = 'Salin Karangan Lengkap';
+  button.dataset = { copyCombinedEssay: '' };
+  const values = ['P1 tulisan sendiri.', 'P2 versi awal.', 'P3 tulisan sendiri.', 'P4 penutup sendiri.'];
+  values.forEach((value, i) => { h.node(`#essay-paragraph-${i + 1}`).value = value; });
+  const before = structuredClone(h.state());
+  await h.root.onclick({ target: { closest: () => button } });
+  assert.equal(h.copied.at(-1), values.join('\n\n'));
+  assert.equal(button.textContent, 'Disalin ✓');
+  assert.deepEqual(h.state(), before);
+  h.node('#essay-paragraph-3').value = 'P3 versi terkini.';
+  await h.root.onclick({ target: { closest: () => button } });
+  assert.equal(h.copied.at(-1), ['P1 tulisan sendiri.', 'P2 versi awal.', 'P3 versi terkini.', 'P4 penutup sendiri.'].join('\n\n'));
+  assert.equal(button.textContent, 'Disalin ✓');
+  h.node('#essay-paragraph-2').value = '';
+  h.node('#essay-paragraph-4').value = '';
+  await h.root.onclick({ target: { closest: () => button } });
+  assert.equal(h.copied.at(-1), 'P1 tulisan sendiri.\n\nP3 versi terkini.');
+  assert.ok(!h.copied.at(-1).includes('Perenggan'));
+  assert.deepEqual(h.state(), before);
+  values.forEach((_, i) => { h.node(`#essay-paragraph-${i + 1}`).value = ''; });
+  const copies = h.copied.length;
+  button.textContent = 'Salin Karangan Lengkap';
+  button.disabled = false;
+  await h.root.onclick({ target: { closest: () => button } });
+  assert.equal(h.copied.length, copies);
+  assert.equal(button.textContent, 'Salin Karangan Lengkap');
+  assert.deepEqual(h.state(), before);
+});
+
 test('real practice controllers check both years locally, replay, reveal and reset without Gemini or hint leakage', async t => {
   for (const year of [1, 4]) await t.test(`Tahun ${year}`, async t => {
     const h = await appHarness(t, { year }), item = h.pack.items[0];
