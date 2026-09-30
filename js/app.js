@@ -5,6 +5,7 @@ import { appConfig, labels, navigation } from "./config.js";
 import { createStore } from "./state.js";
 import { getCurriculumPack } from "./curriculum-service.js";
 import { createAIService } from "./ai-teacher.js";
+import { executionMode } from "./tutor-actions.js";
 import { createSpeechService } from "./speech-service.js";
 import {
   draftText,
@@ -218,7 +219,8 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
     (action === "paragraph_review" && store.state.activity === "essay" && !paragraphIndex
       ? paragraphSelection || latestText
       : latestText);
-  if (!word && ['essay', 'paragraph', 'story'].includes(draft?.activity) && latestText.trim()) {
+  const essayPromptOnly = draft?.activity === 'essay' && (promptButton || executionMode(action) === 'prompt');
+  if (!word && !essayPromptOnly && ['essay', 'paragraph', 'story'].includes(draft?.activity) && latestText.trim()) {
     preserveWritingVersion();
     const history = document.querySelector('#writing-revisions');
     if (history) history.outerHTML = revisionHistory(draft);

@@ -5,6 +5,7 @@ import { createStore } from '../js/state.js';
 import { STORAGE_KEY } from '../js/storage.js';
 import { toast } from '../components/ui.js';
 import { actionActivities, buildExternalTutorPrompt } from '../js/tutor-actions.js';
+import { representativeEssay, externalHeadings } from './fixtures/essay-prompts.mjs';
 
 // Exercise the real app event handlers with a small DOM boundary double.
 // This is controller coverage, not browser/visual/audio validation.
@@ -183,6 +184,78 @@ test('every paragraph Jana Prompt copies immediately from the same live source a
       h.node('#modal').close();
     }
   }
+});
+
+test('all external essay copy entry points preserve exact clipboard content, saved drafts and autosave', async t => {
+  const h = await appHarness(t, { year: 3, activity: 'essay' });
+  h.type(representativeEssay);
+  const id = h.state().activeDrafts['3:essay'];
+  const saved = h.storage.getItem(STORAGE_KEY);
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  const assertCopy = (action, expected, beforeCount) => {
+    assert.equal(h.copied.length, beforeCount + 1, 'Exactly one clipboard write per click');
+    assert.equal(h.copied.at(-1), expected);
+    assert.ok(expected.includes(externalHeadings[action]));
+    assert.match(expected, /Jangan jawab dalam JSON/);
+    assert.doesNotMatch(expected, /Pulangkan JSON|application\/json|"ok":|"summary":|"errors":|"suggestions":|"explanation":|"example":/);
+    assert.equal(h.node('#essay-paragraph-1').value, representativeEssay);
+    assert.equal(h.state().drafts[id].text, representativeEssay);
+  };
+  for (const action of actionActivities.essay.filter(a => a !== 'essay_review')) {
+    const button = h.node(`external-${action}`);
+    button.textContent = 'Jana Prompt';
+    button.dataset = { janaPrompt: action, promptParagraph: '1' };
+    const expected = buildExternalTutorPrompt({ action, activity: 'essay', year: 3,
+      title: h.state().drafts[id].title, stage: h.state().drafts[id].stage,
+      paragraphIndex: 1, previousParagraphs: [], studentText: representativeEssay });
+    for (let copy = 0; copy < 2; copy++) {
+      const beforeCount = h.copied.length;
+      await h.root.onclick({ target: { closest: () => button } });
+      assertCopy(action, expected, beforeCount);
+      assert.equal(button.textContent, 'Disalin ✓');
+      assert.equal(h.storage.getItem(STORAGE_KEY), saved, 'Prompt copy must not create a revision snapshot or save AI text');
+    }
+  }
+  assert.equal(h.requests.length, 0);
+  h.click({ ai: 'essay_review' }); await settle();
+  const expected = buildExternalTutorPrompt({ action: 'essay_review', activity: 'essay', year: 3,
+    title: h.state().drafts[id].title, stage: h.state().drafts[id].stage, studentText: representativeEssay });
+  assert.equal(h.storage.getItem(STORAGE_KEY), saved, 'Opening a local review must not snapshot the draft');
+  for (let copy = 0; copy < 2; copy++) {
+    await h.node('#teacher-prompt').onclick();
+    const beforeCount = h.copied.length;
+    await h.node('#copy-prompt').onclick();
+    assertCopy('essay_review', expected, beforeCount);
+    assert.equal(h.node('#toast').textContent, 'Prompt disalin.');
+    assert.equal(h.storage.getItem(STORAGE_KEY), saved);
+  }
+  h.node('#modal').close();
+  assert.equal(h.requests.length, 0);
+  // Every paragraph modal exposes another local prompt copy entry point.
+  for (const action of actionActivities.essay.filter(a => a !== 'essay_review')) {
+    h.click({ ai: action, aiParagraph: '1' }); await settle();
+    const savedBeforeCopy = h.storage.getItem(STORAGE_KEY), callsBeforeCopy = h.requests.length;
+    const beforeCount = h.copied.length;
+    await h.node('#teacher-prompt').onclick();
+    const expectedParagraph = buildExternalTutorPrompt({ action, activity: 'essay', year: 3,
+      title: h.state().drafts[id].title, stage: h.state().drafts[id].stage,
+      paragraphIndex: 1, previousParagraphs: [], studentText: representativeEssay });
+    assertCopy(action, expectedParagraph, beforeCount);
+    assert.equal(h.node('#teacher-prompt').textContent, 'Disalin ✓');
+    assert.equal(h.requests.length, callsBeforeCopy);
+    assert.equal(h.storage.getItem(STORAGE_KEY), savedBeforeCopy);
+    if (action === 'paragraph_review') {
+      const beforeReviewCopy = h.copied.length;
+      await h.node('#copy-prompt').onclick();
+      assertCopy(action, expectedParagraph, beforeReviewCopy);
+    }
+    h.node('#modal').close();
+  }
+  h.type(representativeEssay + ' Saya mahu membantu ibu lagi.');
+  h.events.pagehide();
+  const loaded = await appHarness(t, { year: 3, activity: 'essay', savedStorage: h.storage });
+  assert.equal(loaded.node('#essay-paragraph-1').value, representativeEssay + ' Saya mahu membantu ibu lagi.');
+  assert.equal(loaded.state().drafts[id].text, representativeEssay + ' Saya mahu membantu ibu lagi.');
 });
 
 test('Karangan Lengkap copies the live combined essay with clean paragraph spacing and no draft mutation', async t => {
@@ -369,12 +442,13 @@ test('AI guidance preserves the complete pupil version before immediate revision
     h.type('Tulisan sebelum bimbingan.');
     const id = h.state().activeDrafts[`6:${activity}`];
     const original = activity === 'story' ? 'Pembukaan saya.\n\nTulisan sebelum bimbingan.' : 'Tulisan sebelum bimbingan.';
-    const action = activity === 'essay' ? 'essay_review' : activity === 'paragraph' ? 'paragraph_review' : 'sentence_check';
-    h.click({ ai: action });
+    const action = activity === 'essay' ? 'sentence_hint' : activity === 'paragraph' ? 'paragraph_review' : 'sentence_check';
+    const dataset = { ai: action, ...(activity === 'essay' ? { aiParagraph: '1' } : {}) };
+    h.click(dataset);
     assert.equal(h.state().drafts[id].revisions[0].text, original);
     assert.match(h.node('#writing-revisions').outerHTML, /Lihat versi tersimpan \(1\)/);
     h.node('#modal').close();
-    h.click({ ai: action });
+    h.click(dataset);
     assert.equal(h.state().drafts[id].revisions.length, 1, 'Repeated guidance does not duplicate an unchanged version');
     h.node('#modal').close();
     h.type('Tulisan selepas bimbingan.');
@@ -392,7 +466,7 @@ test('automatic revision limit warns without deleting earlier versions or changi
   for (let i = 0; i < 20; i++) { h.type(`Versi ${i}.`); h.click({ saveWritingVersion: '' }); }
   const revisions = h.state().drafts[id].revisions;
   h.type('Tulisan semasa yang belum diarkibkan.');
-  h.click({ ai: 'essay_review' });
+  h.click({ ai: 'sentence_hint', aiParagraph: '1' });
   assert.match(h.node('#toast').textContent, /penuh.*Muat turun draf/);
   h.node('#modal').close();
   h.node('#toast').textContent = '';

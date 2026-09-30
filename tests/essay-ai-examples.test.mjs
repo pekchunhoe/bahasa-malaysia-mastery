@@ -59,7 +59,9 @@ test('all paragraph actions share byte-identical semantic instructions in direct
     for (const fragment of [input.title, `Tahun ${year}`, `Perenggan ${index}`, input.studentText, ...input.previousParagraphs,
       tutorActions[action].instruction, 'bukan padanan kata kunci sahaja', 'Elakkan pengulangan dan percanggahan',
       'Jangan mereka-reka fakta', 'Murid kekal pemilik tulisan', 'sekolah rendah Malaysia', 'contoh']) assert.ok(core.includes(fragment), fragment);
-    for (const forbidden of [action, 'JSON', 'karangan_contoh', 'FORBIDDEN_SAMPLE', '/api/', 'GEMINI_', 'studentText', 'previousParagraphs', 'buildTutor', 'butang Salin']) assert.ok(!external.includes(forbidden), forbidden);
+    assert.match(external, /Jangan jawab dalam JSON/);
+    assert.doesNotMatch(external, /Pulangkan JSON|"ok":|"summary":|"examples":/);
+    for (const forbidden of [action, 'karangan_contoh', 'FORBIDDEN_SAMPLE', '/api/', 'GEMINI_', 'studentText', 'previousParagraphs', 'buildTutor', 'butang Salin']) assert.ok(!external.includes(forbidden), forbidden);
     assert.throws(() => JSON.parse(external));
   }
 });
