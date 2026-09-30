@@ -1258,11 +1258,9 @@ dialog::backdrop {
 .essay-paragraph .teacher-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: 10px 12px;
+  gap: 8px 12px;
   margin-top: 0;
 }
-.essay-paragraph .teacher-action-pair { gap: 8px; }
-.essay-paragraph .teacher-action-pair > [data-ai] { flex-basis: 190px; }
 .essay-paragraph .button { min-height: 44px; white-space: normal; text-align: left; max-width: 100%; }
 .essay-combined textarea[readonly] { background: var(--color-surface-soft); }
 .combined-copy { margin: 12px 0; }
@@ -1933,15 +1931,35 @@ blockquote {
   .teacher-action-pair { padding-bottom: 12px; border-bottom: 1px solid var(--color-border); }
   .teacher-action-pair > [data-ai],
   .teacher-action-pair > [data-jana-prompt] { flex: 1 1 100%; }
-  .essay-paragraph .teacher-action-pair { padding-bottom: 0; border-bottom: 0; }
-  .essay-paragraph .teacher-action-pair > [data-ai] { flex: 1 1 190px; }
-  .essay-paragraph .teacher-action-pair > [data-jana-prompt] { flex: 0 1 auto; }
   .ai-example-text p { font-size: 15px; }
 }
-@media (max-width: 370px) {
-  .essay-paragraph .teacher-actions { gap: 8px; }
-  .essay-paragraph .teacher-action-pair > [data-ai],
-  .essay-paragraph .teacher-action-pair > [data-jana-prompt] { flex: 1 1 100%; }
+/* Karangan Berpandu keeps each direct action and its prompt in one mobile row. */
+.essay-paragraph .essay-ai-action-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.essay-paragraph .essay-ai-action-group > [data-ai] {
+  min-width: 0;
+  width: 100%;
+  flex: none;
+}
+.essay-paragraph .essay-ai-action-group > [data-jana-prompt] {
+  flex: none;
+  white-space: nowrap;
+}
+@media (max-width: 340px) {
+  .essay-paragraph .essay-ai-actions { gap: 6px; }
+  .essay-paragraph .essay-ai-action-group {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .essay-paragraph .essay-ai-action-group > [data-jana-prompt] { justify-self: start; }
 }
 .toolbar > .field { flex: 1 1 180px; }
 .toolbar > .search-field { flex: 2 1 220px; min-width: 0; }

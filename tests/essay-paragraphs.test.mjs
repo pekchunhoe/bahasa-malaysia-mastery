@@ -134,6 +134,10 @@ test('essay rendering has four labelled editors, scoped actions, one readonly pr
         assert.ok(html.includes(`data-jana-prompt="${action}" data-prompt-paragraph="${i}"`));
       }
     }
+    assert.equal((html.match(new RegExp(`class="teacher-action-pair essay-ai-action-group"`, 'g')) || []).length, 28);
+    assert.equal((html.match(/>Jana Prompt<\/button>/g) || []).length, 28);
+    const paragraphMarkup = html.split('<section class="essay-combined"')[0];
+    assert.equal((paragraphMarkup.match(/<span class="mini-label">Jana prompt<\/span>/g) || []).length, 0);
     assert.match(html, /id="student-text" readonly aria-readonly="true"/);
     assert.equal((html.match(/data-ai="essay_review"/g) || []).length, 1);
     assert.match(html, /<details class="panel essay-reference"/);

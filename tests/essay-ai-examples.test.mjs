@@ -253,6 +253,8 @@ test('responsive CSS keeps action pairs and example cards wrapping with touch ta
   const css = readFileSync(new URL('../styles/app.css', import.meta.url), 'utf8');
   assert.match(css, /\.teacher-action-pair \{[^}]*flex-wrap: wrap/);
   assert.match(css, /\.teacher-action-pair > \[data-jana-prompt\] \{ flex: 1 1 100%/);
+  assert.match(css, /\.essay-paragraph \.essay-ai-action-group \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto/);
+  assert.match(css, /@media \(max-width: 340px\) \{[\s\S]*?\.essay-ai-action-group \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /\.ai-example-text \{[^}]*min-width: 0; overflow-wrap: anywhere/);
   assert.match(css, /\.ai-example-sentence \.small-button \{ min-height: 44px/);
   assert.match(css, /\.guidance-copy \.small-button \{ min-height: 44px/);
