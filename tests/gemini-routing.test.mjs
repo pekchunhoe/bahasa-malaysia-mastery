@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTeacherHandler } from "../server/ai-handler.js";
 import { createAIService } from "../js/ai-teacher.js";
-import { actionActivities, buildTutorPrompt, essayHintFeedbackSchema, tutorActions, tutorRequest } from "../js/tutor-actions.js";
+import { actionActivities, buildTutorPrompt, essayHintFeedbackSchema, tutorActions, tutorRequest, essayExampleActions, essayExampleFeedbackSchema, normalizeFeedback } from "../js/tutor-actions.js";
+import { exampleFeedback } from './fixtures/essay-examples.mjs';
 import endpoint from "../api/gemini.js";
 import legacyEndpoint from "../api/ai/tutor.js";
 import { openTeacher } from "../components/ai-teacher.js";
@@ -21,6 +22,7 @@ const feedback = {
 const input = (action = "sentence_check", changes = {}) => ({
   action, activity: Object.keys(actionActivities).find(key => actionActivities[key].includes(action)),
   year: 3, title: "Keluarga Saya", studentText: 'Ibu berkata, "Mari makan."\nSaya gembira — café 😊.',
+  ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}),
   ...changes,
 });
 const request = data => new Request("http://localhost/api/gemini", {
@@ -40,13 +42,14 @@ test("legacy endpoint exports the same handler", () => {
 
 test("every direct action traverses frontend, shared handler and real SDK with only the configured model", async t => {
   const captured = [];
+  let currentFeedback = feedback;
   t.mock.method(globalThis, "fetch", async (url, init) => {
     const upstream = new Request(url, init);
     assert.equal(new URL(upstream.url).hostname, "generativelanguage.googleapis.com");
     assert.ok(!upstream.url.includes(env.GEMINI_API_KEY));
     assert.equal(upstream.headers.get("x-goog-api-key"), env.GEMINI_API_KEY);
     captured.push(await upstream.json());
-    return sdkResponse(JSON.stringify(feedback));
+    return sdkResponse(JSON.stringify(currentFeedback));
   });
   const handler = createTeacherHandler(handlerOptions);
   const service = createAIService({ fetcher: (url, options) => {
@@ -56,10 +59,11 @@ test("every direct action traverses frontend, shared handler and real SDK with o
   } });
   for (const [action, config] of Object.entries(tutorActions)) {
     if (config.mode !== "api") continue;
+    currentFeedback = essayExampleActions.includes(action) ? exampleFeedback : feedback;
     const raw = input(action, { model: "client-override-ignored" });
     const original = structuredClone(raw);
     const result = await service.request(raw);
-    assert.deepEqual(result.feedback, feedback);
+    assert.deepEqual(result.feedback, normalizeFeedback(currentFeedback, raw));
     assert.deepEqual(raw, original);
     const sent = captured.at(-1);
     assert.equal(sent.model, env.GEMINI_FAST_MODEL);
@@ -69,8 +73,9 @@ test("every direct action traverses frontend, shared handler and real SDK with o
     assert.equal(sent.generation_config.max_output_tokens, 900);
     if (action === "essay_next_step")
       assert.deepEqual(sent.response_format.schema, essayHintFeedbackSchema);
+    if (essayExampleActions.includes(action)) assert.deepEqual(sent.response_format.schema, essayExampleFeedbackSchema);
   }
-  assert.equal(captured.length, 8);
+  assert.equal(captured.length, 11);
 });
 
 test("missing server settings fail before SDK invocation with explicit safe diagnostics", async () => {
@@ -143,7 +148,9 @@ test("teacher buttons render feedback/errors and copy external prompts without c
     if (!nodes.has(selector)) nodes.set(selector, {
       innerHTML: "", textContent: "", disabled: false,
       dataset: { copyExample: /^\[data-copy-example="(\d+)"\]$/.exec(selector)?.[1] },
-      setAttribute() {},
+      attributes: {},
+      setAttribute(key, value) { this.attributes[key] = value; },
+      getAttribute(key) { return this.attributes[key] ?? null; },
       querySelector: node,
       querySelectorAll(selector) {
         return selector === "[data-copy-example]"

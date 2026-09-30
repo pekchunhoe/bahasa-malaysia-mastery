@@ -9,6 +9,7 @@ import {
   cacheIdentity,
   hasMeaningfulStudentText,
   normalizeFeedback,
+  essayExampleActions,
 } from "../js/tutor-actions.js";
 import { createAIService } from "../js/ai-teacher.js";
 import { createTeacherHandler } from "../server/ai-handler.js";
@@ -43,11 +44,11 @@ const mockEnv = {
 };
 const okResponse = (action) =>
   Response.json({ ok: true, action, data: feedback });
-test("all ten tutor actions route through a single configuration", () => {
-  assert.equal(Object.keys(tutorActions).length, 10);
+test("all thirteen tutor actions route through a single configuration", () => {
+  assert.equal(Object.keys(tutorActions).length, 13);
   for (const [activity, actions] of Object.entries(actionActivities))
     for (const action of actions) {
-      const result = tutorRequest(input({ action, activity }));
+      const result = tutorRequest(input({ action, activity, ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}) }));
       assert.equal(result.action, action);
       assert.equal(
         executionMode(action),
@@ -94,6 +95,7 @@ test("every guided-writing action includes selected year/title/student text with
       context: { modelAnswer: "FORBIDDEN_A", hints: "FORBIDDEN_B" },
       plan: "FORBIDDEN_C",
       presetParagraph: "FORBIDDEN_D",
+      ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}),
     });
     const clean = tutorRequest(raw),
       prompt = buildTutorPrompt(raw);
@@ -103,6 +105,7 @@ test("every guided-writing action includes selected year/title/student text with
       "year",
       "title",
       "studentText",
+      ...(essayExampleActions.includes(action) ? ['paragraphIndex', 'previousParagraphs'] : []),
     ]);
     assert.equal(clean.year, 6);
     assert.equal(clean.title, "Tajuk Pilihan");

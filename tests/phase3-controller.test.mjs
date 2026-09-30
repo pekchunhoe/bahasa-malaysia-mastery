@@ -4,6 +4,7 @@ import { getCurriculumPack } from '../js/curriculum-service.js';
 import { createStore } from '../js/state.js';
 import { STORAGE_KEY } from '../js/storage.js';
 import { toast } from '../components/ui.js';
+import { actionActivities, buildExternalTutorPrompt } from '../js/tutor-actions.js';
 
 // Exercise the real app event handlers with a small DOM boundary double.
 // This is controller coverage, not browser/visual/audio validation.
@@ -16,9 +17,9 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     const draft = store.draft('story', storyTitle, pack);
     store.updateDraft(draft.id, { text: 'Tulisan lama.', lines: ['Sambungan lama.'] });
   }
-  const nodes = new Map(), events = {}, spoken = [], requests = [];
+  const nodes = new Map(), events = {}, spoken = [], requests = [], copied = [];
   const node = selector => {
-    if (!nodes.has(selector)) nodes.set(selector, { innerHTML: '', textContent: '', value: '', dataset: {}, classList: { toggle() {}, add() {}, remove() {} }, focus() {}, querySelector: node, showModal() { this.open = true; }, close() { this.open = false; this.onclose?.(); }, remove() { this.removed = true; } });
+    if (!nodes.has(selector)) nodes.set(selector, { innerHTML: '', textContent: '', value: '', dataset: {}, attributes: {}, getAttribute(key) { return this.attributes[key] ?? null; }, setAttribute(key, value) { this.attributes[key] = value; }, classList: { toggle() {}, add() {}, remove() {} }, focus() {}, querySelector: node, showModal() { this.open = true; }, close() { this.open = false; this.onclose?.(); }, remove() { this.removed = true; } });
     return nodes.get(selector);
   };
   // Mirror the four real textarea values when the app renders a new title.
@@ -39,6 +40,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
     speechSynthesis: { getVoices: () => [{ lang: 'ms-MY' }], speak: u => spoken.push(u), cancel() {} },
     fetch: (...args) => { requests.push(args); throw new Error('No network permitted'); },
+    navigator: { clipboard: { writeText: async text => { copied.push(text); } } },
   };
   const descriptors = Object.fromEntries(Object.keys(globals).map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
   t.after(() => {
@@ -59,7 +61,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     } else root.oninput({ target: { dataset: { draftField: 'text' }, value } });
   };
   const state = () => JSON.parse(storage.getItem(STORAGE_KEY));
-  return { root, node, click, type, state, spoken, requests, events, pack, storage };
+  return { root, node, click, type, state, spoken, requests, events, pack, storage, copied };
 }
 
 test('paragraph controllers combine live edits, scope every AI action, restore titles and protect drafts on API failure', async t => {
@@ -80,7 +82,7 @@ test('paragraph controllers combine live edits, scope every AI action, restore t
   values[2] = 'Tiga_MARKER draf langsung';
   const settle = () => new Promise(resolve => setImmediate(resolve));
   for (let index = 1; index <= 4; index++) {
-    for (const action of ['sentence_hint', 'vocabulary_help', 'essay_next_step', 'paragraph_review']) {
+    for (const action of actionActivities.essay.filter(a => a !== 'essay_review')) {
       h.click({ ai: action, aiParagraph: String(index) });
       await settle();
       if (action === 'paragraph_review') {
@@ -124,6 +126,63 @@ test('paragraph controllers combine live edits, scope every AI action, restore t
   const loaded = await appHarness(t, { year: 4, activity: 'essay', savedStorage: h.storage });
   assert.deepEqual(loaded.state().drafts[id].paragraphs, values);
   values.forEach((value, i) => assert.equal(loaded.node(`#essay-paragraph-${i + 1}`).value, value));
+});
+
+test('every paragraph Jana Prompt copies immediately from the same live source as AI, after edits, clearing and title changes', async t => {
+  const h = await appHarness(t, { year: 4, activity: 'essay' });
+  const values = ['LIVE_P1', 'LIVE_P2', 'LIVE_P3', 'FUTURE_P4'];
+  const actions = actionActivities.essay.filter(action => action !== 'essay_review');
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  for (let index = 1; index <= 4; index++) for (const action of actions) {
+    // Deliberately do not fire input/autosave events.
+    values.forEach((value, i) => { h.node(`#essay-paragraph-${i + 1}`).value = value; });
+    const button = h.node(`prompt-${action}-${index}`);
+    button.textContent = 'Jana Prompt';
+    button.dataset = { janaPrompt: action, promptParagraph: String(index) };
+    const requestsBefore = h.requests.length, modalBefore = h.node('#modal').open;
+    await h.root.onclick({ target: { closest: () => button } });
+    assert.equal(h.requests.length, requestsBefore);
+    assert.equal(h.node('#modal').open, modalBefore);
+    assert.equal(button.textContent, 'Disalin ✓');
+    const prompt = h.copied.at(-1), state = h.state(), draft = state.drafts[state.activeDrafts['4:essay']];
+    assert.equal(prompt, buildExternalTutorPrompt({ action, activity: 'essay', year: 4, title: state.selectedEssayTitle[4],
+      paragraphIndex: index, previousParagraphs: values.slice(0, index - 1), studentText: values[index - 1], stage: draft.stage }));
+    for (let i = 0; i < 4; i++) assert.equal(prompt.includes(values[i]), i < index);
+    assert.ok(!prompt.includes('karangan_contoh'));
+    assert.deepEqual(draft.paragraphs, values);
+    if (action !== 'paragraph_review') {
+      h.click({ ai: action, aiParagraph: String(index) }); await settle();
+      assert.equal(buildExternalTutorPrompt(JSON.parse(h.requests.at(-1)[1].body)), prompt);
+      h.node('#modal').close();
+    }
+    // Repeated copying must use a new live value, even during confirmation.
+    h.node(`#essay-paragraph-${index}`).value = 'EDIT_LIVE';
+    await h.root.onclick({ target: { closest: () => button } });
+    assert.ok(h.copied.at(-1).includes('EDIT_LIVE'));
+    assert.ok(!h.copied.at(-1).includes(values[index - 1]));
+    h.node(`#essay-paragraph-${index}`).value = '';
+    await h.root.onclick({ target: { closest: () => button } });
+    assert.ok(!h.copied.at(-1).includes('EDIT_LIVE'));
+    assert.match(h.copied.at(-1), /Perenggan semasa belum bermakna/);
+  }
+  const current = h.state().selectedEssayContent[4];
+  const next = h.pack.essayTopics.find(topic => topic.id !== current);
+  h.root.onchange({ target: { id: 'writing-topic-select', dataset: {}, value: next.id } });
+  for (const action of actions) {
+    const button = h.node(`new-title-${action}`);
+    button.dataset = { janaPrompt: action, promptParagraph: '3' };
+    await h.root.onclick({ target: { closest: () => button } });
+    assert.ok(h.copied.at(-1).includes(next.title));
+    assert.ok(!h.copied.at(-1).includes('LIVE_P'));
+    if (action !== 'paragraph_review') {
+      h.click({ ai: action, aiParagraph: '3' }); await settle();
+      const request = JSON.parse(h.requests.at(-1)[1].body);
+      assert.equal(request.title, next.title);
+      assert.equal(request.studentText, '');
+      assert.deepEqual(request.previousParagraphs, ['', '']);
+      h.node('#modal').close();
+    }
+  }
 });
 
 test('real practice controllers check both years locally, replay, reveal and reset without Gemini or hint leakage', async t => {

@@ -14,6 +14,7 @@ import {
 } from "./learning-service.js";
 import { e, icon, toast, confirmAction } from "../components/ui.js";
 import { openTeacher } from "../components/ai-teacher.js";
+import { copyWithConfirmation } from "../components/clipboard.js";
 import { renderHome, renderDrafts } from "../components/home.js";
 import { activityRegistry } from "../activities/registry.js";
 import { vocabularyCards } from "../activities/vocabulary.js";
@@ -197,7 +198,7 @@ function syncEssayEditors() {
   if (JSON.stringify(paragraphs) !== JSON.stringify(draft.paragraphs)) write({ paragraphs });
   return true;
 }
-function aiRequest(action, word, paragraphIndex) {
+function aiRequest(action, word, paragraphIndex, promptButton) {
   if (!word && draft?.activity === 'essay' && !syncEssayEditors()) return;
   const editorText = word ? "" : draft?.activity === 'essay' ? draft.text : currentEditorText();
   if (!word && draft && editorText !== draft.text)
@@ -217,10 +218,7 @@ function aiRequest(action, word, paragraphIndex) {
     const history = document.querySelector('#writing-revisions');
     if (history) history.outerHTML = revisionHistory(draft);
   }
-  openTeacher({
-    service: ai,
-    store,
-    request: {
+  const request = {
       action,
       activity: word ? "vocabulary" : store.state.activity,
       year: store.state.year,
@@ -237,8 +235,14 @@ function aiRequest(action, word, paragraphIndex) {
       ...(!word && draft?.activity === 'essay' && paragraphIndex
         ? buildEssayParagraphContext({ title: store.state.selectedEssayTitle[store.state.year] || draft.title,
             year: store.state.year, paragraphIndex, paragraphs: essayParagraphs(draft) }) : {}),
-    },
-  });
+    };
+  if (promptButton) {
+    try {
+      return copyWithConfirmation(promptButton, ai.externalPrompt(request))
+        .catch(() => toast('Tidak dapat menyalin sekarang. Cuba lagi.'));
+    } catch (error) { toast(error.message); return; }
+  }
+  openTeacher({ service: ai, store, request });
 }
 function preserveWritingVersion() {
   const saved = store.snapshotDraft(draft.id);
@@ -425,6 +429,7 @@ function bind() {
       render();
     }
     if (d.ai) aiRequest(d.ai, undefined, d.aiParagraph ? Number(d.aiParagraph) : undefined);
+    if (d.janaPrompt) return aiRequest(d.janaPrompt, undefined, Number(d.promptParagraph), button);
     if (d.wordAi || d.wordExample) {
       const word = pack.vocabulary.find(
         (w) => w.id === (d.wordAi || d.wordExample),

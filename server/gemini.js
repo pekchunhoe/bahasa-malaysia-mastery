@@ -1,6 +1,8 @@
 import {
   buildTutorPrompt,
   essayHintFeedbackSchema,
+  essayExampleActions,
+  essayExampleFeedbackSchema,
   feedbackSchema,
 } from "../js/tutor-actions.js";
 import { TeacherError, MAX_OUTPUT } from "./ai-contract.js";
@@ -30,9 +32,11 @@ export async function generateTeachingResult(input, { apiKey, env, signal }) {
         type: "text",
         mime_type: "application/json",
         schema:
-          input.action === "essay_next_step"
-            ? essayHintFeedbackSchema
-            : feedbackSchema,
+          essayExampleActions.includes(input.action)
+            ? essayExampleFeedbackSchema
+            : input.action === "essay_next_step"
+              ? essayHintFeedbackSchema
+              : feedbackSchema,
       },
       generation_config: { max_output_tokens: route.maxTokens },
     },

@@ -1,5 +1,6 @@
 import {
   buildTutorPrompt,
+  buildExternalTutorPrompt,
   cacheIdentity,
   executionMode,
   normalizeFeedback,
@@ -15,6 +16,7 @@ export function createAIService({
     pending = new Set();
   return {
     prompt: buildTutorPrompt,
+    externalPrompt: buildExternalTutorPrompt,
     async request(raw, { signal, mode } = {}) {
       signal?.throwIfAborted();
       const request = tutorRequest(raw);
@@ -23,7 +25,7 @@ export function createAIService({
         mode === "prompt" ||
         executionMode(request.action, modes) === "prompt"
       )
-        return { mode: "prompt", prompt: buildTutorPrompt(request) };
+        return { mode: "prompt", prompt: buildExternalTutorPrompt(request) };
       const key = cacheIdentity(request),
         cached = cache.get(key);
       if (cached && cached.expires > now())
@@ -60,7 +62,7 @@ export function createAIService({
         const result = {
           mode: "api",
           source_type: "ai_generated",
-          feedback: normalizeFeedback(envelope.data),
+          feedback: normalizeFeedback(envelope.data, request),
         };
         controller.signal.throwIfAborted();
         if (cache.size >= 40) cache.delete(cache.keys().next().value);

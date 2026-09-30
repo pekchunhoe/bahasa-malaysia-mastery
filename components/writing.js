@@ -4,7 +4,11 @@ import { writingCounts } from "../js/learning-service.js";
 import { essayParagraphs, paragraphLabels, MAX_ESSAY_TEXT } from '../js/essay-paragraphs.js';
 export function teacherButtons(activity, paragraphIndex) {
   const actions = (actionActivities[activity] || []).filter(action => activity !== 'essay' || (paragraphIndex ? action !== 'essay_review' : action === 'essay_review'));
-  return `<div class="teacher-actions">${actions.map((action, index) => `<button class="button ${index === 0 ? "tint" : "subtle"}" data-ai="${action}" ${paragraphIndex ? `data-ai-paragraph="${paragraphIndex}"` : ''}>${icon(index === 0 ? "spark" : "chevron")}${e(tutorActions[action].label)}${tutorActions[action].mode === "prompt" ? '<span class="mini-label">Jana prompt</span>' : ""}</button>`).join("")}</div>`;
+  return `<div class="teacher-actions">${actions.map((action, index) => {
+    const label = tutorActions[action].label;
+    const button = `<button type="button" class="button ${index === 0 ? "tint" : "subtle"}" data-ai="${action}" ${paragraphIndex ? `data-ai-paragraph="${paragraphIndex}" aria-label="${e(label)} — Perenggan ${paragraphIndex}"` : ''}>${icon(index === 0 ? "spark" : "chevron")}${e(label)}${tutorActions[action].mode === "prompt" ? '<span class="mini-label">Jana prompt</span>' : ""}</button>`;
+    return paragraphIndex ? `<div class="teacher-action-pair" role="group" aria-label="${e(label)} — Perenggan ${paragraphIndex}">${button}<button type="button" class="button subtle" data-jana-prompt="${action}" data-prompt-paragraph="${paragraphIndex}" aria-label="Jana Prompt — ${e(label)} — Perenggan ${paragraphIndex}" aria-live="polite">Jana Prompt</button></div>` : button;
+  }).join("")}</div>`;
 }
 export function editor(
   draft,

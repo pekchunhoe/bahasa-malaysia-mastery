@@ -124,7 +124,7 @@ export function createTeacherHandler({
         throw new TeacherError("AI_INVALID_RESPONSE", 502);
       let data;
       try {
-        data = normalizeFeedback(JSON.parse(result));
+        data = normalizeFeedback(JSON.parse(result), input);
       } catch {
         throw new TeacherError("AI_INVALID_RESPONSE", 502);
       }

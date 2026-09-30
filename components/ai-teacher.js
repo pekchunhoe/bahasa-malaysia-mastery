@@ -1,32 +1,19 @@
 import { e, list, showModal, toast } from "./ui.js";
 import { provenanceLabel } from "./enrichment.js";
 import { hasMeaningfulStudentText, tutorActions } from "../js/tutor-actions.js";
+import { copyWithConfirmation } from './clipboard.js';
 
-function essayHint(feedback, hasDraft) {
-  const examples = feedback.examples
-    .map(
-      (sentence, index) =>
-        `<div class="ai-example-sentence"><p>${e(sentence)}</p><button class="small-button" type="button" data-copy-example="${index}" aria-label="Salin contoh ayat ${index + 1}">Salin</button></div>`,
-    )
-    .join("");
-  return `<section class="ai-hint-result"><h3>Petunjuk untuk kamu</h3><p>${e(feedback.summary)}</p><h4>${hasDraft ? "Kamu boleh sambung dengan..." : "Idea yang boleh kamu pilih"}</h4>${feedback.suggestions.length ? list(feedback.suggestions) : "<p>Pilih satu idea yang paling sesuai dengan tulisan kamu.</p>"}${feedback.questions.length ? `<h4>Cuba fikirkan</h4>${list(feedback.questions)}` : ""}<h4>Contoh ayat</h4><div class="ai-example-list">${examples || "<p>Belum ada contoh ayat. Cuba pilih satu idea dahulu.</p>"}</div><p class="small muted">Contoh ini untuk kamu ubah suai. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
+function exampleCards(examples, request) {
+  let sentenceNumber = 0;
+  return examples.map((example, index) => {
+    const label = example.type === 'paragraph' ? 'Contoh perenggan' : `Contoh ayat ${++sentenceNumber}`;
+    const context = `${tutorActions[request.action].label}${request.paragraphIndex ? ` — Perenggan ${request.paragraphIndex}` : ''}`;
+    return `<div class="ai-example-sentence"><div class="ai-example-text"><h4>${label}</h4><p>${e(example.text)}</p></div><button class="small-button" type="button" data-copy-example="${index}" aria-label="Salin ${label.toLowerCase()} — ${e(context)}" aria-live="polite">Salin</button></div>`;
+  }).join('');
 }
-
-async function copySentence(sentence) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(sentence);
-    return;
-  }
-  const area = document.createElement("textarea");
-  area.value = sentence;
-  area.setAttribute("readonly", "");
-  area.style.position = "fixed";
-  area.style.opacity = "0";
-  document.body.append(area);
-  area.select();
-  const copied = document.execCommand("copy");
-  area.remove();
-  if (!copied) throw new Error("copy unavailable");
+function essayHint(feedback, hasDraft, request) {
+  const examples = exampleCards(feedback.examples.map(text => ({ type: 'sentence', text })), request);
+  return `<section class="ai-hint-result"><h3>Petunjuk untuk kamu</h3><p>${e(feedback.summary)}</p><h4>${hasDraft ? "Kamu boleh sambung dengan..." : "Idea yang boleh kamu pilih"}</h4>${feedback.suggestions.length ? list(feedback.suggestions) : "<p>Pilih satu idea yang paling sesuai dengan tulisan kamu.</p>"}${feedback.questions.length ? `<h4>Cuba fikirkan</h4>${list(feedback.questions)}` : ""}<h4>Contoh ayat</h4><div class="ai-example-list">${examples || "<p>Belum ada contoh ayat. Cuba pilih satu idea dahulu.</p>"}</div><p class="small muted">Contoh ini untuk kamu ubah suai. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
 }
 
 function attachExampleCopyButtons(result, examples) {
@@ -34,15 +21,7 @@ function attachExampleCopyButtons(result, examples) {
     const sentence = examples[Number(button.dataset.copyExample)];
     button.onclick = async () => {
       try {
-        await copySentence(sentence);
-        button.textContent = "Disalin ✓";
-        button.setAttribute("aria-label", "Contoh ayat telah disalin");
-        const reset = setTimeout(() => {
-          if (!button.isConnected) return;
-          button.textContent = "Salin";
-          button.setAttribute("aria-label", `Salin contoh ayat ${Number(button.dataset.copyExample) + 1}`);
-        }, 1800);
-        reset.unref?.();
+        await copyWithConfirmation(button, sentence);
       } catch {
         toast("Tidak dapat menyalin sekarang. Cuba lagi.");
       }
@@ -90,8 +69,11 @@ export function openTeacher({ service, request, store }) {
       } else {
         const f = response.feedback;
         if (f.kind === "essay_hint") {
-          result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p>${essayHint(f, hasMeaningfulStudentText(request.studentText))}`;
+          result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p>${essayHint(f, hasMeaningfulStudentText(request.studentText), request)}`;
           attachExampleCopyButtons(result, f.examples);
+        } else if (f.kind === 'essay_examples') {
+          result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p><section class="ai-hint-result"><h3>Cadangan untuk kamu</h3><p>${e(f.summary)}</p>${f.suggestions.length ? list(f.suggestions) : ''}<div class="ai-example-list">${exampleCards(f.examples, request)}</div><p class="small muted">Contoh ini ialah pilihan untuk kamu ubah suai. Gunakan hanya butiran yang benar bagi cerita kamu. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
+          attachExampleCopyButtons(result, f.examples.map(example => example.text));
         } else {
           result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p><h3>${e(f.summary)}</h3><h4>Kesalahan yang perlu dibetulkan</h4>${f.errors.length ? list(f.errors) : "<p>Tiada kesalahan khusus dilaporkan.</p>"}<h4>Cadangan untuk menjadikan ayat lebih baik</h4>${f.suggestions.length ? list(f.suggestions) : "<p>Tiada cadangan tambahan.</p>"}<p>${e(f.explanation)}</p>${f.example ? `<div class="notice"><strong>Contoh AI — bukan jawapan untuk disalin</strong><p>${e(f.example)}</p></div>` : ""}<p class="small muted">Cadangan kata AI bukan data kurikulum rasmi.</p>`;
         }
@@ -108,6 +90,10 @@ export function openTeacher({ service, request, store }) {
     }
   };
   run.onclick = () => execute();
-  promptButton.onclick = () => execute("prompt");
+  promptButton.setAttribute('aria-live', 'polite');
+  promptButton.setAttribute('aria-label', `Jana Prompt — ${tutorActions[request.action].label}${request.paragraphIndex ? ` — Perenggan ${request.paragraphIndex}` : ''}`);
+  promptButton.onclick = () => request.paragraphIndex
+    ? copyWithConfirmation(promptButton, service.externalPrompt(request)).catch(() => toast('Tidak dapat menyalin sekarang. Cuba lagi.'))
+    : execute("prompt");
   execute();
 }
