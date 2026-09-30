@@ -16,14 +16,10 @@ function essayHint(feedback, hasDraft, request) {
   return `<section class="ai-hint-result"><h3>Petunjuk untuk kamu</h3><p>${e(feedback.summary)}</p><h4>${hasDraft ? "Kamu boleh sambung dengan..." : "Idea yang boleh kamu pilih"}</h4>${feedback.suggestions.length ? list(feedback.suggestions) : "<p>Pilih satu idea yang paling sesuai dengan tulisan kamu.</p>"}${feedback.questions.length ? `<h4>Cuba fikirkan</h4>${list(feedback.questions)}` : ""}<h4>Contoh ayat</h4><div class="ai-example-list">${examples || "<p>Belum ada contoh ayat. Cuba pilih satu idea dahulu.</p>"}</div><p class="small muted">Contoh ini untuk kamu ubah suai. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
 }
 
-function guidanceText(feedback) {
-  return [
-    feedback.summary,
-    ...feedback.errors,
-    ...feedback.suggestions,
-    feedback.explanation,
-    feedback.example,
-  ].filter(Boolean).join('\n');
+function paragraphHint(feedback, request) {
+  const example = feedback.example?.trim();
+  const examples = example ? exampleCards([{ type: 'sentence', text: example }], request) : '';
+  return `<section class="ai-hint-result"><h3>Petunjuk</h3><p class="guidance-summary">${e(feedback.summary)}</p>${feedback.errors.length ? `<h4>Perkara yang perlu diperhatikan</h4>${list(feedback.errors)}` : ''}${feedback.suggestions.length ? `<h4>Cadangan untuk kamu</h4>${list(feedback.suggestions)}` : ''}${feedback.explanation ? `<p>${e(feedback.explanation)}</p>` : ''}${examples ? `<h4>Contoh ayat</h4><div class="ai-example-list">${examples}</div>` : ''}<p class="small muted">Contoh ini untuk kamu ubah suai. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
 }
 
 function attachExampleCopyButtons(result, examples) {
@@ -37,19 +33,6 @@ function attachExampleCopyButtons(result, examples) {
       }
     };
   });
-}
-
-function attachGuidanceCopyButton(result, feedback) {
-  const button = result.querySelector('[data-copy-guidance]');
-  if (!button) return;
-  const text = guidanceText(feedback);
-  button.onclick = async () => {
-    try {
-      await copyWithConfirmation(button, text);
-    } catch {
-      toast("Tidak dapat menyalin sekarang. Cuba lagi.");
-    }
-  };
 }
 
 export function openTeacher({ service, request, store }) {
@@ -98,9 +81,9 @@ export function openTeacher({ service, request, store }) {
           result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p><section class="ai-hint-result"><h3>Cadangan untuk kamu</h3><p>${e(f.summary)}</p>${f.suggestions.length ? list(f.suggestions) : ''}<div class="ai-example-list">${exampleCards(f.examples, request)}</div><p class="small muted">Contoh ini ialah pilihan untuk kamu ubah suai. Gunakan hanya butiran yang benar bagi cerita kamu. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
           attachExampleCopyButtons(result, f.examples.map(example => example.text));
         } else {
-          const canCopyGuidance = request.action === 'sentence_hint' && request.paragraphIndex;
-          result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p><h3${canCopyGuidance ? ' class="guidance-summary"' : ''}>${e(f.summary)}</h3><h4>Kesalahan yang perlu dibetulkan</h4>${f.errors.length ? list(f.errors) : "<p>Tiada kesalahan khusus dilaporkan.</p>"}<h4>Cadangan untuk menjadikan ayat lebih baik</h4>${f.suggestions.length ? list(f.suggestions) : "<p>Tiada cadangan tambahan.</p>"}<p>${e(f.explanation)}</p>${f.example ? `<div class="notice"><strong>Contoh AI — bukan jawapan untuk disalin</strong><p>${e(f.example)}</p></div>` : ""}${canCopyGuidance ? `<p class="guidance-copy"><button class="small-button" type="button" data-copy-guidance aria-label="Salin petunjuk Perenggan ${request.paragraphIndex}" aria-live="polite">Salin</button></p>` : ""}<p class="small muted">Cadangan kata AI bukan data kurikulum rasmi.</p>`;
-          if (canCopyGuidance) attachGuidanceCopyButton(result, f);
+          const isParagraphHint = request.action === 'sentence_hint' && request.paragraphIndex;
+          result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p>${isParagraphHint ? paragraphHint(f, request) : `<h3>${e(f.summary)}</h3><h4>Kesalahan yang perlu dibetulkan</h4>${f.errors.length ? list(f.errors) : "<p>Tiada kesalahan khusus dilaporkan.</p>"}<h4>Cadangan untuk menjadikan ayat lebih baik</h4>${f.suggestions.length ? list(f.suggestions) : "<p>Tiada cadangan tambahan.</p>"}<p>${e(f.explanation)}</p>${f.example ? `<div class="notice"><strong>Contoh AI — bukan jawapan untuk disalin</strong><p>${e(f.example)}</p></div>` : ""}<p class="small muted">Cadangan kata AI bukan data kurikulum rasmi.</p>`}`;
+          if (isParagraphHint && f.example?.trim()) attachExampleCopyButtons(result, [f.example.trim()]);
         }
       }
       store.runtime.ai = "ready";

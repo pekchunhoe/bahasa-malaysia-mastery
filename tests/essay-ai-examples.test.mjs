@@ -162,13 +162,13 @@ for (const action of essayExampleActions) test(`${action}: separate labelled car
   assert.deepEqual(store.state, before);
 });
 
-test('Beri saya petunjuk has an exact, multiline copy control for P1–P4 without changing writing', async t => {
+test('Beri saya petunjuk copies only its separate example card for P1–P4 without changing writing', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const { node, copied } = modalHarness(t);
   const feedback = { ok: true, summary: 'Ceritakan apa yang berlaku selepas pertandingan.\nNyatakan perasaan kamu.',
     errors: [], suggestions: ['Hubungkan cerita dengan pengalaman sebelumnya.'],
-    explanation: 'Pilih idea yang sesuai dengan cerita kamu.', example: null };
-  const expected = `${feedback.summary}\n${feedback.suggestions[0]}\n${feedback.explanation}`;
+    explanation: 'Pilih idea yang sesuai dengan cerita kamu.', example: 'Saya berasa sangat gembira selepas tamat pertandingan.' };
+  const expected = feedback.example;
   const service = createAIService({ fetcher: async () => Response.json({ ok: true, action: 'sentence_hint', data: feedback }) });
   for (let paragraphIndex = 1; paragraphIndex <= 4; paragraphIndex++) {
     const request = raw('sentence_hint', { paragraphIndex,
@@ -177,13 +177,22 @@ test('Beri saya petunjuk has an exact, multiline copy control for P1–P4 withou
     const store = { runtime: { ai: 'idle' }, state: { draft: { paragraphs: [...request.previousParagraphs, request.studentText, 'Tidak berubah.'] } } };
     const before = structuredClone(store.state);
     openTeacher({ service, request, store }); await settle();
-    const html = node('#teacher-result').innerHTML, control = node('[data-copy-guidance]');
-    assert.match(html, /data-copy-guidance/);
+    const html = node('#teacher-result').innerHTML, control = node('copy0');
+    assert.match(html, /<h3>Petunjuk<\/h3>/);
+    assert.match(html, /<h4>Contoh ayat<\/h4>/);
+    assert.match(html, /ai-example-sentence/);
+    assert.match(html, /data-copy-example="0"/);
+    assert.doesNotMatch(html, /data-copy-guidance/);
     assert.match(html, /type="button"/);
     assert.match(html, /guidance-summary/);
-    assert.match(html, new RegExp(`aria-label="Salin petunjuk Perenggan ${paragraphIndex}"`));
+    assert.match(html, /aria-label="Salin contoh ayat 1/);
+    assert.match(html, new RegExp(`Perenggan ${paragraphIndex}"`));
     await control.onclick();
     assert.equal(copied.at(-1), expected);
+    assert.ok(!copied.at(-1).includes(feedback.summary));
+    assert.ok(!copied.at(-1).includes(feedback.suggestions[0]));
+    assert.ok(!copied.at(-1).includes(feedback.explanation));
+    assert.ok(!copied.at(-1).includes('Contoh ayat'));
     assert.equal(control.textContent, 'Disalin ✓');
     assert.deepEqual(store.state, before);
     t.mock.timers.tick(1800);
@@ -192,6 +201,18 @@ test('Beri saya petunjuk has an exact, multiline copy control for P1–P4 withou
     assert.equal(copied.at(-1), expected);
     assert.deepEqual(store.state, before);
   }
+});
+
+test('Beri saya petunjuk omits the example card and copy button when its optional example is absent', async t => {
+  const { node } = modalHarness(t), request = raw('sentence_hint', { paragraphIndex: 2,
+    previousParagraphs: ['Perenggan terdahulu.'], studentText: 'Draf Perenggan 2.' });
+  const feedback = { ok: true, summary: 'Terangkan perkara yang berlaku seterusnya.', errors: [],
+    suggestions: [], explanation: 'Pilih idea yang sesuai.', example: '   ' };
+  const service = createAIService({ fetcher: async () => Response.json({ ok: true, action: 'sentence_hint', data: feedback }) });
+  openTeacher({ service, request, store: { runtime: { ai: 'idle' }, state: { draft: { text: request.studentText } } } }); await settle();
+  const html = node('#teacher-result').innerHTML;
+  assert.match(html, /Terangkan perkara yang berlaku seterusnya/);
+  assert.doesNotMatch(html, /ai-example-sentence|data-copy-example|Disalin/);
 });
 
 test('minimal results render safely; malformed results show retryable errors and escape markup', async t => {
@@ -257,5 +278,4 @@ test('responsive CSS keeps action pairs and example cards wrapping with touch ta
   assert.match(css, /@media \(max-width: 340px\) \{[\s\S]*?\.essay-ai-action-group \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /\.ai-example-text \{[^}]*min-width: 0; overflow-wrap: anywhere/);
   assert.match(css, /\.ai-example-sentence \.small-button \{ min-height: 44px/);
-  assert.match(css, /\.guidance-copy \.small-button \{ min-height: 44px/);
 });

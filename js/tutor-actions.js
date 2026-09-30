@@ -294,7 +294,8 @@ export function normalizeFeedback(raw, request) {
     errors: [...raw.errors],
     suggestions: [...raw.suggestions],
     explanation: raw.explanation,
-    example: raw.example,
+    // Empty optional examples must not create an empty copy control.
+    example: raw.example?.trim() || null,
   };
 }
 // One semantic source for server output and human-readable, locally copied prompts.
