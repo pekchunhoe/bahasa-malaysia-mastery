@@ -93,6 +93,16 @@ function render() {
   const state = store.state,
     route = state.activity,
     nav = navigation.find((n) => n.id === route);
+  const catalogueYear = route === 'essay'
+    ? state.writingFilters?.[`${state.year}:essay`]?.year || String(state.year)
+    : String(state.year);
+  const yearOptions = route === 'essay'
+    ? `<option value="all" ${catalogueYear === 'all' ? 'selected' : ''}>Semua Tahun</option>${appConfig.years.map(y => `<option value="${y.year}" ${catalogueYear === String(y.year) ? 'selected' : ''}>${y.label}</option>`).join('')}`
+    : appConfig.years.map(y => `<option value="${y.year}" ${state.year === y.year ? 'selected' : ''}>${y.label}</option>`).join('');
+  const yearLabel = route === 'essay' ? 'Tahun karangan' : 'Tahun pembelajaran';
+  const pageEyebrow = route === 'essay' && catalogueYear === 'all'
+    ? 'KATALOG KARANGAN · BELAJAR SELANGKAH DEMI SELANGKAH'
+    : `TAHUN ${state.year} · ${route === 'drafts' ? 'IDEA MILIK KAMU' : 'BELAJAR SELANGKAH DEMI SELANGKAH'}`;
   document.title = `${nav.label} · ${appConfig.name}`;
   const context = { pack, state, draft, speechStatus: speech.availability() };
   let view =
@@ -104,7 +114,7 @@ function render() {
   if (draft?.curriculumId === "demo")
     view = '<p class="notice">Draf ini bermula dalam DEMO Fasa 1. Tulisan asal kamu kekal disimpan.</p>' + view;
   document.querySelector("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="#home"><span class="brand-icon">${icon("book")}</span><span>Bahasa Melayu<strong>Mastery<span class="brand-dot">.</span></strong></span></a><div class="sidebar-caption">RUANG BELAJAR KAMU</div><nav aria-label="Navigasi utama">${navigation.map((n) => `<a class="nav-item ${n.id === route ? "active" : ""}" href="#${n.id}" ${n.id === route ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${e(n.label)}</span>${n.id === route ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom"><div class="sidebar-quote">${icon("sprout")}<p>Idea kamu berharga.<br><strong>Mari kembangkannya.</strong></p></div><div class="sidebar-footer"><span class="tiny-dot"></span> ${appConfig.subtitle}</div></div></aside><div class="main-shell"><header class="topbar"><span class="breadcrumb">Ruang belajar <span>/</span> <strong>${e(nav.label)}</strong></span><div class="topbar-right"><span class="demo-tag">MASTER 2026</span><label class="year-select">Tahun pembelajaran<select id="year-select" aria-label="Pilih tahun pembelajaran">${appConfig.years.map((y) => `<option value="${y.year}" ${state.year === y.year ? "selected" : ""}>${y.label}</option>`).join("")}</select></label><span class="profile-icon" aria-label="Murid">M</span></div></header>${updateAvailable ? '<div class="update-banner" role="status">Versi baharu tersedia. Draf kamu kekal disimpan. <button class="small-button" data-update>Muat semula apabila bersedia</button></div>' : ""}<main id="main" tabindex="-1">${route !== "home" ? `<div class="page-heading"><div><span class="eyebrow">TAHUN ${state.year} · ${route === "drafts" ? "IDEA MILIK KAMU" : "BELAJAR SELANGKAH DEMI SELANGKAH"}</span><h1>${e(nav.label)}</h1><p>${e(nav.description || "Sambung menulis, bila-bila masa kamu bersedia.")}</p></div>${draft ? `<div class="actions"><button class="button" data-new-draft>Draf baharu</button><button class="button" data-export="${e(draft.id)}">Muat turun draf</button></div>` : ""}</div>` : ""}${view}<footer class="page-footer"><span>${icon("sprout")} Belajar berfikir. Berani menulis.</span><span>Ejaan & Imlak 2026 - Penulisan sendiri</span></footer><p class="global-save small" data-save-status aria-live="polite"></p></main></div>`;
+    `<aside class="sidebar"><a class="brand" href="#home"><span class="brand-icon">${icon("book")}</span><span>Bahasa Melayu<strong>Mastery<span class="brand-dot">.</span></strong></span></a><div class="sidebar-caption">RUANG BELAJAR KAMU</div><nav aria-label="Navigasi utama">${navigation.map((n) => `<a class="nav-item ${n.id === route ? "active" : ""}" href="#${n.id}" ${n.id === route ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${e(n.label)}</span>${n.id === route ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom"><div class="sidebar-quote">${icon("sprout")}<p>Idea kamu berharga.<br><strong>Mari kembangkannya.</strong></p></div><div class="sidebar-footer"><span class="tiny-dot"></span> ${appConfig.subtitle}</div></div></aside><div class="main-shell"><header class="topbar"><span class="breadcrumb">Ruang belajar <span>/</span> <strong>${e(nav.label)}</strong></span><div class="topbar-right"><span class="demo-tag">MASTER 2026</span><label class="year-select">${yearLabel}<select id="year-select" aria-label="Pilih ${yearLabel.toLocaleLowerCase('ms')}">${yearOptions}</select></label><span class="profile-icon" aria-label="Murid">M</span></div></header>${updateAvailable ? '<div class="update-banner" role="status">Versi baharu tersedia. Draf kamu kekal disimpan. <button class="small-button" data-update>Muat semula apabila bersedia</button></div>' : ""}<main id="main" tabindex="-1">${route !== "home" ? `<div class="page-heading"><div><span class="eyebrow">${pageEyebrow}</span><h1>${e(nav.label)}</h1><p>${e(nav.description || "Sambung menulis, bila-bila masa kamu bersedia.")}</p></div>${draft ? `<div class="actions"><button class="button" data-new-draft>Draf baharu</button><button class="button" data-export="${e(draft.id)}">Muat turun draf</button></div>` : ""}</div>` : ""}${view}<footer class="page-footer"><span>${icon("sprout")} Belajar berfikir. Berani menulis.</span><span>Ejaan & Imlak 2026 - Penulisan sendiri</span></footer><p class="global-save small" data-save-status aria-live="polite"></p></main></div>`;
   status();
   bind();
   const rate = document.querySelector("#speech-rate");
@@ -316,8 +326,7 @@ function bind() {
     const target = event.target;
     if (target.dataset.writingFilter && target.dataset.writingFilter !== 'query') {
       store.setWritingFilter(store.state.activity, target.dataset.writingFilter, target.value);
-      if (target.dataset.writingFilter === 'year') render();
-      else refreshWritingTopics();
+      refreshWritingTopics();
     }
     if (target.id === 'writing-topic-select' && target.value) {
       const topic = store.state.activity === 'essay'
@@ -331,7 +340,18 @@ function bind() {
       }
     }
     if (target.id === "year-select") {
+      if (store.state.activity === 'essay' && target.value === 'all') {
+        speech.stop();
+        store.setWritingFilter('essay', 'year', 'all');
+        render();
+        return;
+      }
       const next = Number(target.value);
+      if (store.state.activity === 'essay' && next === store.state.year) {
+        store.setWritingFilter('essay', 'year', String(next));
+        render();
+        return;
+      }
       if (next === store.state.year) return;
       target.value = String(store.state.year);
       confirmAction(
@@ -341,6 +361,7 @@ function bind() {
         () => {
           speech.stop();
           store.setYear(next);
+          if (store.state.activity === 'essay') store.setWritingFilter('essay', 'year', String(next));
           render();
         },
       );

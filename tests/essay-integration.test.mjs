@@ -112,7 +112,8 @@ test('Semua Tahun exposes the unmodified master catalog and composes with existi
   store.setWritingFilter('essay', 'year', 'all');
   const picker = topicPicker(pack, store.state, draft);
   assert.match(picker, /Semua Tahun/);
-  for (let year = 1; year <= 6; year++) assert.match(picker, new RegExp(`Tahun ${year}`));
+  assert.doesNotMatch(picker, /data-writing-filter="year"/);
+  assert.equal((picker.match(/<select/g) || []).length, 3);
   assert.match(topicResults(pack, store.state, draft), new RegExp(`${essays.items.length} daripada ${essays.items.length}`));
 
   const selected = essayTopicById(target.id);

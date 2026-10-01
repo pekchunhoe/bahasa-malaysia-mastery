@@ -130,13 +130,18 @@ test('paragraph controllers combine live edits, scope every AI action, restore t
   values.forEach((value, i) => assert.equal(loaded.node(`#essay-paragraph-${i + 1}`).value, value));
 });
 
-test('Semua Tahun keeps the selected essay identity and uses its actual year for AI and external prompts', async t => {
+test('the single header Tahun selector controls Semua Tahun while preserving essay identity and actual AI year', async t => {
   const h = await appHarness(t, { year: 1, activity: 'essay' });
   const originalId = h.state().activeDrafts['1:essay'];
   const target = essays.items.find(topic => topic.year === 5);
-  h.root.onchange({ target: { dataset: { writingFilter: 'year' }, value: 'all' } });
+  assert.equal((h.root.innerHTML.match(/id="year-select"/g) || []).length, 1);
+  assert.equal((h.root.innerHTML.match(/data-writing-filter="year"/g) || []).length, 0);
+  assert.match(h.root.innerHTML, /<option value="all"\s*>Semua Tahun<\/option>/);
+  for (let year = 1; year <= 6; year++) assert.match(h.root.innerHTML, new RegExp(`>Tahun ${year}<`));
+  h.root.onchange({ target: { id: 'year-select', dataset: {}, value: 'all' } });
   assert.equal(h.state().writingFilters['1:essay'].year, 'all');
-  assert.match(h.root.innerHTML, /Semua Tahun/);
+  assert.match(h.root.innerHTML, /<option value="all" selected>Semua Tahun<\/option>/);
+  assert.doesNotMatch(h.root.innerHTML, /<span class="eyebrow">TAHUN 1/);
   h.root.onchange({ target: { id: 'writing-topic-select', dataset: {}, value: target.id } });
   const selectedId = h.state().activeDrafts['1:essay'];
   assert.notEqual(selectedId, originalId);
