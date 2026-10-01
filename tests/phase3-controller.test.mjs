@@ -1,6 +1,7 @@
 ﻿import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getCurriculumPack } from '../js/curriculum-service.js';
+import { essays } from '../data/generated/essays.js';
 import { createStore } from '../js/state.js';
 import { STORAGE_KEY } from '../js/storage.js';
 import { toast } from '../components/ui.js';
@@ -127,6 +128,35 @@ test('paragraph controllers combine live edits, scope every AI action, restore t
   const loaded = await appHarness(t, { year: 4, activity: 'essay', savedStorage: h.storage });
   assert.deepEqual(loaded.state().drafts[id].paragraphs, values);
   values.forEach((value, i) => assert.equal(loaded.node(`#essay-paragraph-${i + 1}`).value, value));
+});
+
+test('Semua Tahun keeps the selected essay identity and uses its actual year for AI and external prompts', async t => {
+  const h = await appHarness(t, { year: 1, activity: 'essay' });
+  const originalId = h.state().activeDrafts['1:essay'];
+  const target = essays.items.find(topic => topic.year === 5);
+  h.root.onchange({ target: { dataset: { writingFilter: 'year' }, value: 'all' } });
+  assert.equal(h.state().writingFilters['1:essay'].year, 'all');
+  assert.match(h.root.innerHTML, /Semua Tahun/);
+  h.root.onchange({ target: { id: 'writing-topic-select', dataset: {}, value: target.id } });
+  const selectedId = h.state().activeDrafts['1:essay'];
+  assert.notEqual(selectedId, originalId);
+  assert.equal(h.state().drafts[selectedId].contentId, target.id);
+  assert.equal(h.state().drafts[selectedId].title, target.title);
+  h.type('Draf saya untuk tajuk ini.');
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  h.click({ ai: 'essay_next_step', aiParagraph: '1' }); await settle();
+  const request = JSON.parse(h.requests.at(-1)[1].body);
+  assert.equal(request.year, target.year);
+  assert.equal(request.title, target.title);
+  assert.ok(!JSON.stringify(request).includes('Semua Tahun'));
+  h.node('#modal').close();
+  const promptButton = h.node('all-years-prompt');
+  promptButton.textContent = 'Jana Prompt';
+  promptButton.dataset = { janaPrompt: 'essay_next_step', promptParagraph: '1' };
+  await h.root.onclick({ target: { closest: () => promptButton } });
+  assert.match(h.copied.at(-1), /Tahun 5/);
+  assert.doesNotMatch(h.copied.at(-1), /Semua Tahun/);
+  assert.equal(h.state().drafts[originalId].text, '');
 });
 
 test('every paragraph Jana Prompt copies immediately from the same live source as AI, after edits, clearing and title changes', async t => {

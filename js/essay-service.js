@@ -23,9 +23,18 @@ const catalog = await readEssayCatalog(() => import('../data/generated/essays.js
 export function essaysForYear(year) {
   return { ...catalog, items: catalog.items.filter(item => item.year === year) };
 }
+export function essayTopicsForYear(year) {
+  return catalog.items
+    .filter(item => year === 'all' || year == null || item.year === Number(year))
+    .map(item => ({ ...item, genre: item.writing_type, yearMin: item.year, yearMax: item.year }));
+}
+export function essayTopicById(id) {
+  return catalog.items.find(item => item.id === id);
+}
 export function filterEssays(items, { year, category = 'all', type = 'all', query = '' } = {}) {
   const search = query.trim().normalize('NFC').toLocaleLowerCase('ms');
-  return items.filter(item => (year == null || item.year === year) &&
+  const selectedYear = year === 'all' || year === 'Semua Tahun' || year == null ? null : Number(year);
+  return items.filter(item => (selectedYear == null || item.year === selectedYear) &&
     (category === 'all' || item.category === category) && (type === 'all' || item.writing_type === type) &&
     `${item.title} ${item.category || ''} ${item.writing_type || ''}`.normalize('NFC').toLocaleLowerCase('ms').includes(search));
 }
@@ -34,7 +43,7 @@ export function writingTopicsFor(pack, activity) {
   return activity === 'story' ? pack.storyStarters || [] : activity === 'paragraph' ? pack.paragraphTopics || [] : pack.writingTopics || [];
 }
 export function selectedWritingTopic(pack, draft) {
-  const topics = writingTopicsFor(pack, draft.activity);
+  const topics = draft.activity === 'essay' ? essayTopicsForYear('all') : writingTopicsFor(pack, draft.activity);
   if (draft.contentId) return topics.find(topic => topic.id === draft.contentId);
   const matching = topics.filter(topic => topic.title === draft.title);
   return matching.length === 1 ? matching[0] : undefined;

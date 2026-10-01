@@ -20,7 +20,7 @@ import { renderHome, renderDrafts } from "../components/home.js";
 import { activityRegistry } from "../activities/registry.js";
 import { vocabularyCards } from "../activities/vocabulary.js";
 import { watchForDeploymentUpdate } from "./deployment-version.js";
-import { writingTopicsFor } from "./essay-service.js";
+import { essayTopicById, writingTopicsFor } from "./essay-service.js";
 import { topicResults, revisionHistory } from "../components/essay-catalog.js";
 import { essayParagraphs, combineEssay, buildEssayParagraphContext, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
 
@@ -70,7 +70,7 @@ function prepare() {
       const id = store.state.selectedEssayContent[store.state.year] || existing?.contentId;
       const title = store.state.selectedEssayTitle[store.state.year] || existing?.title;
       const matches = pack.writingTopics.filter(t => t.title === title);
-      const topic = (id ? pack.writingTopics.find(t => t.id === id) : matches.length === 1 ? matches[0] : null) || (!title && !id ? pack.writingTopics[0] : null);
+      const topic = (id ? essayTopicById(id) : matches.length === 1 ? matches[0] : null) || (!title && !id ? pack.writingTopics[0] : null);
       const chosenTitle = topic?.title || title || "Karangan saya";
       store.selectTitle(chosenTitle, topic?.id || id || "");
       draft = store.draft(route, chosenTitle, pack, { contentId: topic?.id || id || "" });
@@ -228,7 +228,7 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
   const request = {
       action,
       activity: word ? "vocabulary" : store.state.activity,
-      year: store.state.year,
+      year: draft?.activity === 'essay' ? essayTopicById(draft.contentId)?.year || store.state.year : store.state.year,
       title: word
         ? ""
         : store.state.activity === "essay"
@@ -241,7 +241,7 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
       ...(word || !["sentence", "expansion"].includes(store.state.activity) ? {} : { referenceText: selectedItem(pack, store.state, draft)?.text || "" }),
       ...(!word && draft?.activity === 'essay' && paragraphIndex
         ? buildEssayParagraphContext({ title: store.state.selectedEssayTitle[store.state.year] || draft.title,
-            year: store.state.year, paragraphIndex, paragraphs: essayParagraphs(draft) }) : {}),
+            year: essayTopicById(draft.contentId)?.year || store.state.year, paragraphIndex, paragraphs: essayParagraphs(draft) }) : {}),
     };
   if (promptButton) {
     try {
@@ -316,10 +316,13 @@ function bind() {
     const target = event.target;
     if (target.dataset.writingFilter && target.dataset.writingFilter !== 'query') {
       store.setWritingFilter(store.state.activity, target.dataset.writingFilter, target.value);
-      refreshWritingTopics();
+      if (target.dataset.writingFilter === 'year') render();
+      else refreshWritingTopics();
     }
     if (target.id === 'writing-topic-select' && target.value) {
-      const topic = writingTopicsFor(pack, store.state.activity).find(t => t.id === target.value);
+      const topic = store.state.activity === 'essay'
+        ? essayTopicById(target.value)
+        : writingTopicsFor(pack, store.state.activity).find(t => t.id === target.value);
       if (topic) {
         speech.stop(); ai.clearCache();
         if (store.state.activity === 'essay') store.selectTitle(topic.title, topic.id);

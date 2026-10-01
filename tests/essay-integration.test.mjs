@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { essays } from '../data/generated/essays.js';
 import { adaptEssayRows, countEssayWords } from '../data/adapters/essays.js';
-import { filterEssays, isNarrative, readEssayCatalog, selectedWritingTopic } from '../js/essay-service.js';
+import { essayTopicById, essayTopicsForYear, filterEssays, isNarrative, readEssayCatalog, selectedWritingTopic } from '../js/essay-service.js';
 import { getCurriculumPack } from '../js/curriculum-service.js';
 import { createStore } from '../js/state.js';
 import { hydrate, STORAGE_KEY } from '../js/storage.js';
@@ -93,6 +93,32 @@ test('every year/category/type combination and title search returns only matchin
     assert.match(topicResults(pack, store.state, draft), /Tiada tajuk sepadan/);
     assert.equal(draft.contentId, topic.id); assert.equal(draft.text, '');
   }
+});
+
+test('Semua Tahun exposes the unmodified master catalog and composes with existing filters', () => {
+  const { pack, store } = setup(1);
+  const firstByYear = [1, 2, 3, 4, 5, 6].map(year => essayTopicsForYear(year)[0]);
+  const all = essayTopicsForYear('all');
+  assert.equal(all.length, essays.items.length);
+  assert.deepEqual(new Set(all.map(topic => topic.year)), new Set([1, 2, 3, 4, 5, 6]));
+  assert.deepEqual(filterEssays(all, { year: 'all' }).map(topic => topic.id), essays.items.map(topic => topic.id));
+  assert.deepEqual(filterEssays(all, { year: 1 }).map(topic => topic.id), essayTopicsForYear(1).map(topic => topic.id));
+  assert.deepEqual(filterEssays(all, { year: 6 }).map(topic => topic.id), essayTopicsForYear(6).map(topic => topic.id));
+  const target = firstByYear[4];
+  assert.deepEqual(filterEssays(all, { year: 'all', query: target.title }).map(topic => topic.id), [target.id]);
+  assert.ok(filterEssays(all, { year: 'all', category: target.category, type: target.writing_type }).some(topic => topic.id === target.id));
+
+  const draft = store.draft('essay', pack.essayTopics[0].title, pack, { contentId: pack.essayTopics[0].id });
+  store.setWritingFilter('essay', 'year', 'all');
+  const picker = topicPicker(pack, store.state, draft);
+  assert.match(picker, /Semua Tahun/);
+  for (let year = 1; year <= 6; year++) assert.match(picker, new RegExp(`Tahun ${year}`));
+  assert.match(topicResults(pack, store.state, draft), new RegExp(`${essays.items.length} daripada ${essays.items.length}`));
+
+  const selected = essayTopicById(target.id);
+  assert.equal(selected.year, 5);
+  assert.equal(selectedWritingTopic(pack, { activity: 'essay', contentId: target.id, title: target.title }).id, target.id);
+  assert.equal(selectedWritingTopic(pack, { activity: 'essay', contentId: target.id, title: target.title }).model_text, target.model_text);
 });
 
 test('all master examples require deliberate disclosure, preserve line breaks and never populate editors', () => {

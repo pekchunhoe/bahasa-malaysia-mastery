@@ -48,8 +48,9 @@ export function hydrate(raw) {
   if (raw.writingFilters && typeof raw.writingFilters === 'object')
     for (const [key, filters] of Object.entries(raw.writingFilters)) {
       if (!/^[1-6]:(essay|paragraph|story)$/.test(key) || !filters || typeof filters !== 'object') continue;
-      base.writingFilters[key] = Object.fromEntries(['query', 'category', 'type']
-        .filter(name => typeof filters[name] === 'string').map(name => [name, filters[name].slice(0, 160)]));
+      base.writingFilters[key] = Object.fromEntries(['query', 'category', 'type', 'year']
+        .filter(name => typeof filters[name] === 'string' && (name !== 'year' || filters[name] === 'all' || validYear(Number(filters[name]))))
+        .map(name => [name, filters[name].slice(0, 160)]));
     }
   if (Array.isArray(raw.selectedVocabulary))
     base.selectedVocabulary = raw.selectedVocabulary

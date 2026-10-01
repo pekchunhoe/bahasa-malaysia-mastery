@@ -48,7 +48,8 @@ export function createStore({
       persist();
     },
     setWritingFilter(activity, name, value) {
-      if (!['essay', 'paragraph', 'story'].includes(activity) || !['query', 'category', 'type'].includes(name)) throw Error('Invalid writing filter');
+      if (!['essay', 'paragraph', 'story'].includes(activity) || !['query', 'category', 'type', 'year'].includes(name)) throw Error('Invalid writing filter');
+      if (name === 'year' && value !== 'all' && !validYear(Number(value))) throw Error('Invalid writing year filter');
       const key = `${state.year}:${activity}`;
       state.writingFilters[key] = { ...(state.writingFilters[key] || {}), [name]: String(value).slice(0, 160) };
       persist();

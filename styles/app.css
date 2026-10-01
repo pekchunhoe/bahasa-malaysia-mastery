@@ -1901,7 +1901,7 @@ blockquote {
 .essay-catalog,
 .essay-reference,
 .current-writing-title { min-width: 0; overflow-wrap: anywhere; }
-.essay-filters { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(2, minmax(140px, 1fr)); gap: 12px; }
+.essay-filters { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(180px, 2fr) repeat(2, minmax(140px, 1fr)); gap: 12px; }
 .essay-filters select,
 .essay-filters input,
 #writing-topic-select { width: 100%; min-width: 0; max-width: 100%; }
