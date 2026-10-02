@@ -29,7 +29,8 @@ const store = createStore(),
 let pack,
   draft,
   updateAvailable = false,
-  paragraphSelection = "";
+  paragraphSelection = "",
+  activeSpeechCleanup = () => {};
 const speech = createSpeechService({
   onChange: (status) => {
     store.runtime.speech = status;
@@ -41,8 +42,16 @@ const speech = createSpeechService({
             ? !status.paused
             : !status.speaking;
     });
+    document.querySelectorAll("[data-speech-rate]").forEach((select) => {
+      select.value = String(status.rate);
+    });
   },
 });
+function stopReading() {
+  speech.stop();
+  activeSpeechCleanup();
+  activeSpeechCleanup = () => {};
+}
 const currentRoute = () => {
   const route = location.hash.slice(1);
   return navigation.some((item) => item.id === route)
@@ -117,14 +126,15 @@ function render() {
     `<aside class="sidebar"><a class="brand" href="#home"><span class="brand-icon">${icon("book")}</span><span>Bahasa Melayu<strong>Mastery<span class="brand-dot">.</span></strong></span></a><div class="sidebar-caption">RUANG BELAJAR KAMU</div><nav aria-label="Navigasi utama">${navigation.map((n) => `<a class="nav-item ${n.id === route ? "active" : ""}" href="#${n.id}" ${n.id === route ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${e(n.label)}</span>${n.id === route ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom"><div class="sidebar-quote">${icon("sprout")}<p>Idea kamu berharga.<br><strong>Mari kembangkannya.</strong></p></div><div class="sidebar-footer"><span class="tiny-dot"></span> ${appConfig.subtitle}</div></div></aside><div class="main-shell"><header class="topbar"><span class="breadcrumb">Ruang belajar <span>/</span> <strong>${e(nav.label)}</strong></span><div class="topbar-right"><span class="demo-tag">MASTER 2026</span><label class="year-select">${yearLabel}<select id="year-select" aria-label="Pilih ${yearLabel.toLocaleLowerCase('ms')}">${yearOptions}</select></label><span class="profile-icon" aria-label="Murid">M</span></div></header>${updateAvailable ? '<div class="update-banner" role="status">Versi baharu tersedia. Draf kamu kekal disimpan. <button class="small-button" data-update>Muat semula apabila bersedia</button></div>' : ""}<main id="main" tabindex="-1">${route !== "home" ? `<div class="page-heading"><div><span class="eyebrow">${pageEyebrow}</span><h1>${e(nav.label)}</h1><p>${e(nav.description || "Sambung menulis, bila-bila masa kamu bersedia.")}</p></div>${draft ? `<div class="actions"><button class="button" data-new-draft>Draf baharu</button><button class="button" data-export="${e(draft.id)}">Muat turun draf</button></div>` : ""}</div>` : ""}${view}<footer class="page-footer"><span>${icon("sprout")} Belajar berfikir. Berani menulis.</span><span>Ejaan & Imlak 2026 - Penulisan sendiri</span></footer><p class="global-save small" data-save-status aria-live="polite"></p></main></div>`;
   status();
   bind();
-  const rate = document.querySelector("#speech-rate");
-  if (rate) rate.value = String(speech.rate);
+  document.querySelectorAll("[data-speech-rate]").forEach((select) => {
+    select.value = String(speech.rate);
+  });
   document
     .querySelectorAll("[data-speech]")
     .forEach((button) => (button.disabled = true));
   if (!speech.supported())
     document
-      .querySelectorAll("[data-speak], [data-read-writing]")
+      .querySelectorAll("[data-speak], [data-read-writing], [data-read-example]")
       .forEach((button) => {
         button.disabled = true;
         button.title = "Bacaan suara tidak tersedia dalam pelayar ini.";
@@ -170,24 +180,38 @@ function download(id) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-function read(text) {
-  const target = document.querySelector("#speech-current");
+function read(text, { statusSelector = "#speech-current", onError } = {}) {
+  const target = document.querySelector(statusSelector);
   const clear = () => {
     if (target) target.textContent = "";
   };
-  if (
-    !speech.speak(text, {
+  stopReading();
+  activeSpeechCleanup = clear;
+  const finish = () => {
+    if (activeSpeechCleanup === clear) {
+      clear();
+      activeSpeechCleanup = () => {};
+    }
+  };
+  let failed = false;
+  const started = speech.speak(text, {
       onSentence: (_, sentence) => {
         if (target) target.textContent = `Sedang dibaca: ${sentence}`;
       },
-      onEnd: clear,
+      onEnd: finish,
       onError: () => {
-        clear();
-        toast("Bacaan suara tidak tersedia. Kamu boleh terus menulis.");
+        failed = true;
+        finish();
+        if (onError) onError();
+        else toast("Bacaan suara tidak tersedia. Kamu boleh terus menulis.");
       },
-    })
-  )
-    toast("Bacaan suara tidak tersedia atau teks masih kosong.");
+    });
+  if (!started && !failed) {
+    finish();
+    if (onError) onError();
+    else toast("Bacaan suara tidak tersedia atau teks masih kosong.");
+  }
+  return started;
 }
 function currentEditorText() {
   const editor = document.querySelector("#student-text");
@@ -333,7 +357,7 @@ function bind() {
         ? essayTopicById(target.value)
         : writingTopicsFor(pack, store.state.activity).find(t => t.id === target.value);
       if (topic) {
-        speech.stop(); ai.clearCache();
+        stopReading(); ai.clearCache();
         if (store.state.activity === 'essay') store.selectTitle(topic.title, topic.id);
         store.draft(store.state.activity, topic.title, pack, { contentId: topic.id });
         render();
@@ -341,7 +365,7 @@ function bind() {
     }
     if (target.id === "year-select") {
       if (store.state.activity === 'essay' && target.value === 'all') {
-        speech.stop();
+        stopReading();
         store.setWritingFilter('essay', 'year', 'all');
         render();
         return;
@@ -359,7 +383,7 @@ function bind() {
         "Draf tahun ini kekal disimpan. Kamu boleh menyambungnya melalui Draf Saya.",
         "Tukar tahun",
         () => {
-          speech.stop();
+          stopReading();
           store.setYear(next);
           if (store.state.activity === 'essay') store.setWritingFilter('essay', 'year', String(next));
           render();
@@ -367,19 +391,19 @@ function bind() {
       );
     }
     if (target.id === "unit-select") {
-      speech.stop();
+      stopReading();
       store.setUnit(target.value);
       render();
     }
     if (target.id === "item-select") {
-      speech.stop();
+      stopReading();
       ai.clearCache();
       store.draft(draft.activity, draft.title, pack, { itemId: target.value });
       render();
     }
     if (target.dataset.detail) write({ plan: { ...draft.plan, [target.dataset.detail.replaceAll(" ", "_")]: target.checked ? "yes" : "" } });
     if (target.id === "essay-title") {
-      speech.stop();
+      stopReading();
       const topic = pack.writingTopics.find(t => t.id === target.value);
       store.selectTitle(topic?.title || target.value, topic?.id || "");
       ai.clearCache();
@@ -388,7 +412,7 @@ function bind() {
     if (target.id === "story-starter") {
       const starter = pack.storyStarters.find(t => t.id === target.value);
       if (starter) {
-        speech.stop(); ai.clearCache();
+        stopReading(); ai.clearCache();
         store.draft("story", starter.title, pack, { contentId: starter.id });
         render();
       }
@@ -398,7 +422,7 @@ function bind() {
       if (store.state.activity === "vocabulary") refreshWords();
       else render();
     }
-    if (target.id === "speech-rate") speech.setRate(target.value);
+    if (target.dataset.speechRate !== undefined) speech.setRate(target.value);
   };
   const editor = document.querySelector("#student-text");
   if (editor) {
@@ -413,7 +437,11 @@ function bind() {
     const d = button.dataset;
     if ('hideExample' in d) {
       const disclosure = button.closest('[data-essay-example]');
-      if (disclosure) { disclosure.open = false; disclosure.querySelector('summary').focus(); }
+      if (disclosure) {
+        stopReading();
+        disclosure.open = false;
+        disclosure.querySelector('summary').focus();
+      }
     }
     if ('resetWritingFilters' in d) {
       store.resetWritingFilters(store.state.activity);
@@ -438,14 +466,14 @@ function bind() {
       const unavailable = () => {
         document.querySelector("#practice-speech-status").textContent = "Bacaan suara gagal. Pilih Lihat jawapan untuk latihan visual atau minta bantuan guru.";
       };
-      if (!speech.speak(item.text, { onError: unavailable })) unavailable();
+      read(item.text, { statusSelector: "#practice-speech-status", onError: unavailable });
     }
     if ("practiceReveal" in d) {
       store.practice(draft.itemId, { revealed: true });
       render();
     }
     if ("practiceReset" in d) {
-      speech.stop();
+      stopReading();
       store.practice(draft.itemId, { revealed: false });
       store.draft(draft.activity, draft.title, pack, { fresh: true, itemId: draft.itemId, contentId: draft.contentId });
       render();
@@ -482,13 +510,17 @@ function bind() {
     }
     if (d.speak) read(d.speak);
     if ("readWriting" in d) read(draftText(draft));
+    if (d.readExample) {
+      const topic = draft?.contentId === d.readExample ? essayTopicById(d.readExample) : null;
+      if (!topic?.model_text) toast('Contoh karangan ini tidak tersedia.');
+      else read(topic.model_text, { statusSelector: '#example-speech-current' });
+    }
     if (d.speech) {
-      speech[d.speech]();
-      if (d.speech === "stop")
-        document.querySelector("#speech-current").textContent = "";
+      if (d.speech === "stop") stopReading();
+      else speech[d.speech]();
     }
     if (d.resume) {
-      speech.stop();
+      stopReading();
       store.resume(d.resume);
       location.hash = store.state.activity;
       render();
@@ -506,7 +538,7 @@ function bind() {
       );
     if (d.export) download(d.export);
     if ("newDraft" in d) {
-      speech.stop();
+      stopReading();
       store.draft(draft.activity, draft.title, pack, { fresh: true, itemId: draft.itemId, contentId: draft.contentId });
       render();
       toast("Draf baharu dibuka. Draf terdahulu kekal dalam Draf Saya.");
@@ -591,7 +623,7 @@ window.addEventListener("hashchange", () => {
     document.querySelector("#main").focus();
     return;
   }
-  speech.stop();
+  stopReading();
   document.querySelector("#modal").close();
   store.navigate(currentRoute());
   render();
@@ -600,7 +632,7 @@ window.addEventListener("hashchange", () => {
 });
 window.addEventListener("pagehide", () => {
   store.persist();
-  speech.stop();
+  stopReading();
 });
 store.navigate(currentRoute());
 render();

@@ -1,4 +1,5 @@
-import { e } from './ui.js';
+import { e, icon } from './ui.js';
+import { speechControls } from './writing.js';
 import { essayTopicsForYear, filterEssays, writingTopicsFor } from '../js/essay-service.js';
 
 export const writingFilterKey = (year, activity) => `${year}:${activity}`;
@@ -29,7 +30,7 @@ export function topicPicker(pack, state, draft) {
 
 export function essayExample(topic) {
   if (!topic?.model_text) return '';
-  return `<details class="panel essay-reference" data-essay-example><summary>Lihat contoh karangan</summary><p class="source-label">CONTOH RUJUKAN MASTER · ${e(topic.status)} / ${e(topic.example_status)}</p><h2>${e(topic.title)}</h2><p>${e(topic.writing_type)} · ${e(topic.format)} · ${topic.word_count} perkataan</p><p>Contoh untuk dipelajari. Tulis idea kamu sendiri; contoh ini tidak dimasukkan ke dalam draf.</p><div class="essay-model">${e(topic.model_text)}</div><button class="button" data-hide-example>Sembunyikan contoh</button></details>`;
+  return `<details class="panel essay-reference" data-essay-example><summary>Lihat contoh karangan</summary><p class="source-label">CONTOH RUJUKAN MASTER · ${e(topic.status)} / ${e(topic.example_status)}</p><h2>${e(topic.title)}</h2><p>${e(topic.writing_type)} · ${e(topic.format)} · ${topic.word_count} perkataan</p><p>Contoh untuk dipelajari. Tulis idea kamu sendiri; contoh ini tidak dimasukkan ke dalam draf.</p><div class="essay-model">${e(topic.model_text)}</div><div class="editor-footer example-speech-footer"><span>Baca contoh ini</span><button type="button" class="text-button" data-read-example="${e(topic.id)}" aria-label="Dengar tulisan contoh karangan: ${e(topic.title)}">${icon('sound')} Dengar tulisan</button></div>${speechControls({ statusId: 'example-speech-current', rateId: 'example-speech-rate', rateLabel: 'Kelajuan bacaan contoh' })}<button type="button" class="button" data-hide-example>Sembunyikan contoh</button></details>`;
 }
 
 export function revisionHistory(draft) {

@@ -129,6 +129,9 @@ test('all master examples require deliberate disclosure, preserve line breaks an
     assert.ok(!/<details[^>]*\bopen\b/.test(html));
     assert.ok(html.includes(e(topic.model_text)));
     assert.match(html, /data-hide-example/);
+    assert.match(html, new RegExp(`data-read-example="${topic.id}"`));
+    assert.match(html, /aria-label="Dengar tulisan contoh karangan:/);
+    assert.match(html, /data-speech-rate/);
     assert.ok(html.includes(e(topic.title)));
   }
   for (const activity of ['essay', 'paragraph', 'story']) for (const year of [1, 6]) {

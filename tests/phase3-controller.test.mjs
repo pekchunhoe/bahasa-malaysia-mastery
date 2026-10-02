@@ -6,6 +6,7 @@ import { createStore } from '../js/state.js';
 import { STORAGE_KEY } from '../js/storage.js';
 import { toast } from '../components/ui.js';
 import { actionActivities, buildExternalTutorPrompt } from '../js/tutor-actions.js';
+import { sentences } from '../js/learning-service.js';
 import { representativeEssay, externalHeadings } from './fixtures/essay-prompts.mjs';
 
 // Exercise the real app event handlers with a small DOM boundary double.
@@ -19,7 +20,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     const draft = store.draft('story', storyTitle, pack);
     store.updateDraft(draft.id, { text: 'Tulisan lama.', lines: ['Sambungan lama.'] });
   }
-  const nodes = new Map(), events = {}, spoken = [], requests = [], copied = [];
+  const nodes = new Map(), events = {}, spoken = [], cancellations = [], requests = [], copied = [];
   const node = selector => {
     if (!nodes.has(selector)) nodes.set(selector, { innerHTML: '', textContent: '', value: '', dataset: {}, attributes: {}, getAttribute(key) { return this.attributes[key] ?? null; }, setAttribute(key, value) { this.attributes[key] = value; }, classList: { toggle() {}, add() {}, remove() {} }, focus() {}, querySelector: node, showModal() { this.open = true; }, close() { this.open = false; this.onclose?.(); }, remove() { this.removed = true; } });
     return nodes.get(selector);
@@ -40,7 +41,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     document: { querySelector: node, querySelectorAll: () => [], title: '' },
     window: { addEventListener: (name, callback) => { events[name] = callback; }, scrollTo() {} },
     SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
-    speechSynthesis: { getVoices: () => [{ lang: 'ms-MY' }], speak: u => spoken.push(u), cancel() {} },
+    speechSynthesis: { getVoices: () => [{ lang: 'ms-MY' }], speak: u => spoken.push(u), cancel: () => cancellations.push(true) },
     fetch: (...args) => { requests.push(args); throw new Error('No network permitted'); },
     navigator: { clipboard: { writeText: async text => { copied.push(text); } } },
   };
@@ -63,8 +64,48 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     } else root.oninput({ target: { dataset: { draftField: 'text' }, value } });
   };
   const state = () => JSON.parse(storage.getItem(STORAGE_KEY));
-  return { root, node, click, type, state, spoken, requests, events, pack, storage, copied };
+  return { root, node, click, type, state, spoken, cancellations, requests, events, pack, storage, copied };
 }
+
+test('Contoh Karangan reads only the active master model text and cleans up when hidden or changed', async t => {
+  const h = await appHarness(t, { year: 4, activity: 'essay' });
+  const original = h.state().drafts[h.state().activeDrafts['4:essay']];
+  const topic = h.pack.essayTopics.find(item => item.id === original.contentId);
+  h.type('DRAF MURID TIDAK BOLEH DIBACA.');
+  const beforeDraft = JSON.stringify(h.state().drafts[original.id]);
+  h.click({ readExample: topic.id });
+  assert.match(h.node('#example-speech-current').textContent, /Sedang dibaca:/);
+  const expectedSentences = sentences(topic.model_text);
+  for (let index = 0; index < expectedSentences.length; index++) {
+    const utterance = h.spoken.at(-1);
+    assert.equal(utterance.text, expectedSentences[index]);
+    assert.ok(!utterance.text.includes('DRAF MURID'));
+    assert.ok(!utterance.text.includes(topic.title));
+    utterance.onend();
+  }
+  h.click({ readExample: topic.id });
+  const first = h.spoken.at(-1);
+
+  const disclosure = { open: true, querySelector: () => ({ focus() {} }) };
+  const hide = { dataset: { hideExample: '' }, disabled: false, closest: selector => selector === '[data-essay-example]' ? disclosure : null };
+  h.root.onclick({ target: { closest: selector => selector === 'button' ? hide : null } });
+  assert.equal(disclosure.open, false);
+  assert.equal(h.node('#example-speech-current').textContent, '');
+  const callsAfterHide = h.spoken.length;
+  first.onend();
+  assert.equal(h.spoken.length, callsAfterHide, 'cancelled example cannot continue');
+
+  h.click({ readExample: topic.id });
+  const active = h.spoken.at(-1), next = h.pack.essayTopics.find(item => item.id !== topic.id);
+  const cancellationsBeforeChange = h.cancellations.length;
+  h.root.onchange({ target: { id: 'writing-topic-select', dataset: {}, value: next.id } });
+  assert.ok(h.cancellations.length > cancellationsBeforeChange);
+  active.onend();
+  assert.equal(h.node('#example-speech-current').textContent, '');
+  h.click({ readExample: next.id });
+  assert.equal(h.spoken.at(-1).text, sentences(next.model_text)[0]);
+  assert.equal(JSON.stringify(h.state().drafts[original.id]), beforeDraft);
+});
 
 test('paragraph controllers combine live edits, scope every AI action, restore titles and protect drafts on API failure', async t => {
   const h = await appHarness(t, { year: 4, activity: 'essay' });
