@@ -6,7 +6,8 @@ import { copyWithConfirmation } from './clipboard.js';
 function exampleCards(examples, request) {
   let sentenceNumber = 0;
   return examples.map((example, index) => {
-    const label = example.type === 'paragraph' ? 'Contoh perenggan' : `Contoh ayat ${++sentenceNumber}`;
+    const label = example.type === 'improvedParagraph' ? 'Contoh perenggan yang dipertingkat'
+      : example.type === 'paragraph' ? 'Contoh perenggan' : `Contoh ayat ${++sentenceNumber}`;
     const context = `${tutorActions[request.action].label}${request.paragraphIndex ? ` — Perenggan ${request.paragraphIndex}` : ''}`;
     return `<div class="ai-example-sentence"><div class="ai-example-text"><h4>${label}</h4><p>${e(example.text)}</p></div><button class="small-button" type="button" data-copy-example="${index}" aria-label="Salin ${label.toLowerCase()} — ${e(context)}" aria-live="polite">Salin</button></div>`;
   }).join('');
@@ -77,9 +78,11 @@ export function openTeacher({ service, request, store }) {
         if (f.kind === "essay_hint") {
           result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p>${essayHint(f, hasMeaningfulStudentText(request.studentText), request)}`;
           attachExampleCopyButtons(result, f.examples);
-        } else if (f.kind === 'essay_examples') {
-          result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p><section class="ai-hint-result"><h3>Cadangan untuk kamu</h3><p>${e(f.summary)}</p>${f.suggestions.length ? list(f.suggestions) : ''}<div class="ai-example-list">${exampleCards(f.examples, request)}</div><p class="small muted">Contoh ini ialah pilihan untuk kamu ubah suai. Gunakan hanya butiran yang benar bagi cerita kamu. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
-          attachExampleCopyButtons(result, f.examples.map(example => example.text));
+        } else if (f.kind === 'essay_examples' || f.kind === 'essay_vivid') {
+          const vivid = f.kind === 'essay_vivid';
+          const examples = [...(vivid && f.improvedParagraph ? [{ type: 'improvedParagraph', text: f.improvedParagraph }] : []), ...f.examples];
+          result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p><section class="ai-hint-result"><h3>${vivid ? e(tutorActions[request.action].label) : 'Cadangan untuk kamu'}</h3><p>${e(f.summary)}</p>${f.suggestions.length ? list(f.suggestions) : ''}<div class="ai-example-list">${exampleCards(examples, request)}</div><p class="small muted">Contoh ini ialah pilihan untuk kamu ubah suai. Gunakan hanya butiran yang benar bagi cerita kamu. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
+          attachExampleCopyButtons(result, examples.map(example => example.text));
         } else {
           const isParagraphHint = request.action === 'sentence_hint' && request.paragraphIndex;
           result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p>${isParagraphHint ? paragraphHint(f, request) : `<h3>${e(f.summary)}</h3><h4>Kesalahan yang perlu dibetulkan</h4>${f.errors.length ? list(f.errors) : "<p>Tiada kesalahan khusus dilaporkan.</p>"}<h4>Cadangan untuk menjadikan ayat lebih baik</h4>${f.suggestions.length ? list(f.suggestions) : "<p>Tiada cadangan tambahan.</p>"}<p>${e(f.explanation)}</p>${f.example ? `<div class="notice"><strong>Contoh AI — bukan jawapan untuk disalin</strong><p>${e(f.example)}</p></div>` : ""}<p class="small muted">Cadangan kata AI bukan data kurikulum rasmi.</p>`}`;

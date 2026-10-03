@@ -234,6 +234,19 @@ export const essayExampleFeedbackSchema = {
   },
   required: ['ok', 'summary', 'suggestions', 'examples'],
 };
+// Vividness has its own contract; sentence examples are supplementary only.
+export const essayVividFeedbackSchema = {
+  ...essayExampleFeedbackSchema,
+  properties: {
+    ...essayExampleFeedbackSchema.properties,
+    improvedParagraph: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    examples: { type: 'array', items: {
+      ...essayExampleFeedbackSchema.properties.examples.items,
+      properties: { type: { type: 'string', enum: ['sentence'] }, text: { type: 'string' } },
+    } },
+  },
+  required: [...essayExampleFeedbackSchema.required, 'improvedParagraph'],
+};
 export function hasMeaningfulStudentText(value) {
   if (typeof value !== "string") return false;
   const letters = value.match(/[\p{L}\p{N}]/gu) || [];
@@ -243,18 +256,30 @@ export function normalizeFeedback(raw, request) {
   const string = (value) => typeof value === "string" && value.length <= 6000;
   const stringList = (value, max) =>
     Array.isArray(value) && value.length <= max && value.every(string);
+  const vivid = request?.action === 'essay_vivid';
+  if (vivid) {
+    const paragraph = raw?.improvedParagraph;
+    const hasDraft = hasMeaningfulStudentText(request.studentText);
+    if (hasDraft
+      ? typeof paragraph !== 'string' || paragraph.length > MAX_ESSAY_TEXT || !hasMeaningfulStudentText(paragraph) ||
+        /\n\s*\n|^\s*(?:[#>*`{\[]|Contoh perenggan\b)|\*\*|<\/?[a-z][^>]*>/imu.test(paragraph)
+      : paragraph !== null)
+      throw new Error('Maklum balas Cikgu AI tidak lengkap. Cuba lagi.');
+  }
   if (essayExampleActions.includes(request?.action) || raw?.kind === 'essay_examples' ||
       (Array.isArray(raw?.examples) && raw.examples.some(example => example && typeof example === 'object'))) {
     const suggestions = raw?.suggestions ?? [];
     if (!raw || raw.ok !== true || !string(raw.summary) || !raw.summary.trim() ||
         !stringList(suggestions, 4) || !Array.isArray(raw.examples) ||
-        raw.examples.length < 1 || raw.examples.length > 4 ||
+        raw.examples.length < (vivid ? 0 : 1) || raw.examples.length > 4 ||
         !raw.examples.every(example => example && ['sentence', 'paragraph'].includes(example.type) &&
+          (!vivid || example.type === 'sentence') &&
           string(example.text) && example.text.trim() && example.text.length <= (example.type === 'sentence' ? 600 : 1600)) ||
         raw.examples.filter(example => example.type === 'paragraph').length > 1 ||
         raw.examples.filter(example => example.type === 'sentence').length > 3)
       throw new Error('Maklum balas Cikgu AI tidak lengkap. Cuba lagi.');
-    return { kind: 'essay_examples', ok: true, summary: raw.summary.trim(),
+    return { kind: vivid ? 'essay_vivid' : 'essay_examples', ok: true, summary: raw.summary.trim(),
+      ...(vivid ? { improvedParagraph: raw.improvedParagraph?.trim() ?? null } : {}),
       suggestions: suggestions.map(value => value.trim()).filter(Boolean),
       examples: raw.examples.map(({ type, text }) => ({ type, text: text.trim() })) };
   }
@@ -327,8 +352,10 @@ export function buildEssayTutorInstructions(raw) {
       : input.paragraphIndex
         ? 'Perenggan semasa belum bermakna. Bantu murid memulakan bahagian ini berdasarkan tajuk dan perenggan terdahulu. Jangan mendakwa murid sudah menulis atau membaiki ayat yang belum wujud. Beri arah permulaan dan contoh permulaan pilihan; untuk semakan, jangan mereka-reka kesalahan.'
         : 'Belum ada tulisan yang bermakna untuk disemak. Jangan menilai tanda baca sahaja sebagai karangan atau mereka-reka kekuatan dan kesalahan. Ajak murid menulis satu ayat sendiri tentang tajuk dahulu.',
-    examples
-      ? `Beri panduan ringkas dan ${input.year <= 2 ? '2' : input.year <= 4 ? '2 hingga 3' : '2 hingga 4'} idea atau cadangan pilihan. Beri ${input.year <= 2 ? '2 ayat pendek dengan perkataan mudah' : '2 hingga 3 contoh ayat ringkas dengan kepelbagaian bahasa yang sesuai sekolah rendah'}. Setiap contoh mesti berdasarkan tajuk, cerita terdahulu dan bahagian semasa. ${input.year <= 2 ? 'Utamakan ayat pendek sahaja, tanpa contoh perenggan panjang.' : 'Jika benar-benar membantu, beri paling banyak SATU contoh perenggan pendek (2 hingga 3 ayat) yang berpaut rapat pada idea murid, bukan karangan lengkap.'} Contoh perenggan ialah model pilihan sahaja, bukan pengganti automatik. Jangan tambah fakta yang belum diketahui demi menghias contoh.`
+    input.action === 'essay_vivid' && hasMeaningfulStudentText(input.studentText)
+      ? 'Analisis SELURUH perenggan semasa sebagai satu perenggan: kaitan dengan tajuk dan peranan bahagian ini, kejelasan, struktur ayat, ejaan dan tanda baca, pilihan kata, pengulangan, variasi ayat, butiran deskriptif yang sesuai, aliran semula jadi, kohesi, penanda wacana dan perkembangan idea yang logik. Terangkan pembaikan terpilih secara ringkas mengikut tahap bimbingan Tahun di atas. WAJIB beri SATU contoh perenggan lengkap yang dipertingkat berdasarkan SELURUH tulisan semasa, termasuk semua idea teras hingga akhir, bukan contoh ayat terpilih sahaja. Kekalkan suara dan maksud murid, tanpa bahasa berbunga yang berlebihan. Untuk murid muda, kekalkan ayat pendek dan kata mudah dalam contoh perenggan lengkap itu. Jangan hadkan contoh kepada 2 atau 3 ayat jika idea murid memerlukan lebih banyak ayat. Perenggan terdahulu ialah konteks sahaja: jangan tulis semula atau gabungkannya ke dalam contoh perenggan semasa. Teks contoh mesti satu perenggan biasa tanpa tajuk, label, metadata atau markdown. Utamakan perenggan lengkap; panduan dan cadangan mesti ringkas. Contoh ayat tambahan adalah pilihan sahaja dan tidak boleh menggantikan contoh perenggan lengkap.'
+      : examples
+      ? `Beri panduan ringkas dan ${input.year <= 2 ? '2' : input.year <= 4 ? '2 hingga 3' : '2 hingga 4'} idea atau cadangan pilihan. Beri ${input.year <= 2 ? '2 ayat pendek dengan perkataan mudah' : '2 hingga 3 contoh ayat ringkas dengan kepelbagaian bahasa yang sesuai sekolah rendah'}. Setiap contoh mesti berdasarkan tajuk, cerita terdahulu dan bahagian semasa. ${input.action === 'essay_vivid' ? 'Beri contoh ayat permulaan sahaja kerana perenggan semasa belum bermakna.' : input.year <= 2 ? 'Utamakan ayat pendek sahaja, tanpa contoh perenggan panjang.' : 'Jika benar-benar membantu, beri paling banyak SATU contoh perenggan pendek (2 hingga 3 ayat) yang berpaut rapat pada idea murid, bukan karangan lengkap.'} Contoh perenggan ialah model pilihan sahaja, bukan pengganti automatik. Jangan tambah fakta yang belum diketahui demi menghias contoh.`
       : input.action === 'essay_next_step'
         ? 'Beri 2 hingga 4 arah perkembangan (lebih sedikit untuk murid muda), paling banyak 3 soalan panduan jika berguna dan 3 hingga 5 contoh ayat pendek yang relevan. Untuk bahagian kosong, beri idea dan ayat permulaan. Jangan menulis perenggan atau karangan lengkap.'
         : 'Beri panduan ringkas mengikut tindakan yang diminta. Jika contoh membantu, beri satu contoh ayat pendek sahaja, bukan perenggan pengganti. Jangan anggap setiap ayat memerlukan semua butiran siapa, tempat, masa, cara dan sebab.',
@@ -341,6 +368,7 @@ export function buildEssayTutorInstructions(raw) {
   ].join('\n\n');
 }
 function paragraphOutputFormat(action) {
+  if (action === 'essay_vivid') return 'Pulangkan JSON sahaja: {"ok":true,"summary":"panduan ringkas","suggestions":["cadangan"],"improvedParagraph":"seluruh perenggan semasa yang dipertingkat","examples":[]}. improvedParagraph WAJIB berupa teks perenggan lengkap yang bermakna apabila tulisan semasa bermakna. Jika tulisan semasa kosong atau tidak bermakna, improvedParagraph mesti null; beri panduan dan contoh ayat permulaan sahaja. examples ialah contoh ayat tambahan pilihan, paling banyak 3 objek {"type":"sentence","text":"contoh ayat"}; jangan letakkan contoh perenggan di sini.';
   if (essayExampleActions.includes(action)) return 'Pulangkan JSON sahaja: {"ok":true,"summary":"panduan ringkas","suggestions":["idea atau cadangan"],"examples":[{"type":"sentence","text":"contoh ayat"}]}. Setiap contoh ialah objek berasingan. Untuk contoh perenggan pilihan, gunakan type "paragraph". Jangan masukkan label atau nombor contoh dalam text. Tiada medan lain.';
   if (action === 'essay_next_step') return 'Pulangkan JSON sahaja: {"ok":true,"summary":"...","suggestions":["..."],"questions":["..."],"examples":["..."]}.';
   return 'Pulangkan JSON sahaja: {"ok":true,"summary":"...","errors":[],"suggestions":[],"explanation":"...","example":null}.';
@@ -352,7 +380,7 @@ function externalEssayOutputFormat(action) {
     essay_next_step: 'Gunakan tajuk “Idea untuk sambung” dengan arah perkembangan yang boleh dipilih. Sertakan “Soalan panduan” jika berguna dan contoh ayat pendek yang berasingan; jangan sambung cerita bagi pihak murid.',
     essay_ideas: 'Gunakan tajuk “Idea untuk perenggan ini” dengan idea pilihan yang ringkas, kemudian contoh berasingan yang berpaut pada cerita murid.',
     essay_develop: 'Gunakan tajuk “Cara mengembangkan idea” dengan cadangan butiran pilihan, kemudian contoh berasingan yang mengekalkan maksud murid.',
-    essay_vivid: 'Gunakan tajuk “Cara menjadikan tulisan lebih menarik” dengan cadangan bahasa yang sesuai, kemudian contoh berasingan yang mengekalkan suara murid.',
+    essay_vivid: 'Gunakan tajuk “Cara menjadikan tulisan lebih menarik” dengan cadangan bahasa yang sesuai. Apabila tulisan semasa bermakna, WAJIB sertakan “Contoh perenggan yang dipertingkat” diikuti satu perenggan lengkap yang mengekalkan suara dan semua idea teras murid. Jangan abaikan contoh perenggan lengkap ini. Asingkan contoh ayat tambahan jika perlu. Jika tulisan semasa belum bermakna, beri contoh ayat permulaan sahaja tanpa mendakwa telah mempertingkat perenggan.',
     paragraph_review: 'Gunakan tajuk “Semakan Perenggan”. Akui kekuatan sebenar secara ringkas, kemudian utamakan pembaikan idea utama, butiran sokongan dan hubungan ayat. Terangkan perkara terpilih sahaja.',
     essay_review: 'Gunakan tajuk “Semakan Karangan” dan “Ringkasan” untuk kekuatan sebenar serta kaitan dengan tajuk. Jika berguna, gunakan “Perkara yang boleh dibaiki”, “Penjelasan” dan “Contoh” untuk pembaikan, penerangan ringkas dan satu contoh ayat pendek pilihan. Jangan tulis semula keseluruhan karangan.',
   };
@@ -364,6 +392,7 @@ function externalEssayOutputFormat(action) {
     formats[action],
     'Sesuaikan bahagian jawapan dengan keperluan sebenar. Jangan mereka-reka kesalahan atau memaksa bilangan cadangan; satu pembaikan berguna sudah memadai. Bezakan kesalahan sebenar daripada penambahbaikan pilihan. Abaikan bahagian kosong dan contoh yang tidak diperlukan.',
     'Contoh ialah sokongan pilihan untuk diubah suai oleh murid. Jika terdapat beberapa contoh, labelkan “Contoh ayat 1”, “Contoh ayat 2” dan seterusnya; jika dibenarkan dan sesuai, labelkan “Contoh perenggan”. Pisahkan setiap contoh supaya mudah disalin secara berasingan.',
+    ...(action === 'essay_vivid' ? ['Untuk tindakan ini, contoh perenggan lengkap WAJIB disediakan apabila tulisan semasa bermakna; hanya contoh ayat tambahan boleh diabaikan. Murid bebas memilih sama ada mahu menggunakan contoh itu.'] : []),
   ].join('\n\n');
 }
 export function buildExternalTutorPrompt(raw) {

@@ -8,11 +8,12 @@ import { toast } from '../components/ui.js';
 import { actionActivities, buildExternalTutorPrompt } from '../js/tutor-actions.js';
 import { sentences } from '../js/learning-service.js';
 import { representativeEssay, externalHeadings } from './fixtures/essay-prompts.mjs';
+import { vividFeedback } from './fixtures/essay-examples.mjs';
 
 // Exercise the real app event handlers with a small DOM boundary double.
 // This is controller coverage, not browser/visual/audio validation.
 let instance = 0;
-async function appHarness(t, { year = 1, activity = 'practice', storyTitle, savedStorage } = {}) {
+async function appHarness(t, { year = 1, activity = 'practice', storyTitle, savedStorage, apiResponse } = {}) {
   const values = new Map(), storage = savedStorage || { getItem: k => values.get(k) ?? null, setItem: (k, v) => values.set(k, v) };
   const pack = getCurriculumPack(year), store = createStore({ storage });
   store.setYear(year); store.navigate(activity);
@@ -22,7 +23,15 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
   }
   const nodes = new Map(), events = {}, spoken = [], cancellations = [], requests = [], copied = [];
   const node = selector => {
-    if (!nodes.has(selector)) nodes.set(selector, { innerHTML: '', textContent: '', value: '', dataset: {}, attributes: {}, getAttribute(key) { return this.attributes[key] ?? null; }, setAttribute(key, value) { this.attributes[key] = value; }, classList: { toggle() {}, add() {}, remove() {} }, focus() {}, querySelector: node, showModal() { this.open = true; }, close() { this.open = false; this.onclose?.(); }, remove() { this.removed = true; } });
+    if (!nodes.has(selector)) nodes.set(selector, { innerHTML: '', textContent: '', value: '', dataset: {}, attributes: {}, getAttribute(key) { return this.attributes[key] ?? null; }, setAttribute(key, value) { this.attributes[key] = value; }, classList: { toggle() {}, add() {}, remove() {} }, focus() {}, querySelector: node,
+      querySelectorAll(selector) {
+        if (selector !== '[data-copy-example]') return [];
+        return [...this.innerHTML.matchAll(/data-copy-example="(\d+)" aria-label="([^"]+)"/g)].map(match => {
+          const control = node(`copy${match[1]}`);
+          control.dataset.copyExample = match[1]; control.textContent = 'Salin'; control.isConnected = true;
+          control.setAttribute('aria-label', match[2]); return control;
+        });
+      }, showModal() { this.open = true; }, close() { this.open = false; this.onclose?.(); }, remove() { this.removed = true; } });
     return nodes.get(selector);
   };
   // Mirror the four real textarea values when the app renders a new title.
@@ -42,7 +51,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     window: { addEventListener: (name, callback) => { events[name] = callback; }, scrollTo() {} },
     SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
     speechSynthesis: { getVoices: () => [{ lang: 'ms-MY' }], speak: u => spoken.push(u), cancel: () => cancellations.push(true) },
-    fetch: (...args) => { requests.push(args); throw new Error('No network permitted'); },
+    fetch: (...args) => { requests.push(args); if (apiResponse) return apiResponse(...args); throw new Error('No network permitted'); },
     navigator: { clipboard: { writeText: async text => { copied.push(text); } } },
   };
   const descriptors = Object.fromEntries(Object.keys(globals).map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
@@ -169,6 +178,53 @@ test('paragraph controllers combine live edits, scope every AI action, restore t
   const loaded = await appHarness(t, { year: 4, activity: 'essay', savedStorage: h.storage });
   assert.deepEqual(loaded.state().drafts[id].paragraphs, values);
   values.forEach((value, i) => assert.equal(loaded.node(`#essay-paragraph-${i + 1}`).value, value));
+});
+
+test('vivid success and whole-paragraph copying preserve live editors, all saved paragraphs and subsequent autosave', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = await appHarness(t, { year: 5, activity: 'essay',
+    apiResponse: async () => Response.json({ ok: true, action: 'essay_vivid', data: vividFeedback }) });
+  const id = h.state().activeDrafts['5:essay'];
+  const values = ['Pada hari Sabtu, sekolah saya mengadakan Hari Sukan.', 'Saya menyertai acara lari berganti-ganti.',
+    'Selepas acara itu, saya berehat di bawah khemah rumah sukan. Saya berasa penat tetapi gembira.', 'Saya pulang bersama ibu.'];
+  values.forEach((value, i) => {
+    const editor = h.node(`#essay-paragraph-${i + 1}`); editor.value = value;
+    h.root.oninput({ target: editor });
+  });
+  const original = h.state().drafts[id];
+  h.click({ ai: 'essay_vivid', aiParagraph: '3' });
+  await new Promise(resolve => setImmediate(resolve));
+  const request = JSON.parse(h.requests.at(-1)[1].body);
+  assert.equal(request.title, original.title);
+  assert.equal(request.year, 5);
+  assert.equal(request.contentId, original.contentId);
+  assert.equal(request.stage, original.stage);
+  assert.equal(request.paragraphIndex, 3);
+  assert.equal(request.studentText, values[2]);
+  assert.deepEqual(request.previousParagraphs, values.slice(0, 2));
+  assert.match(h.node('#teacher-result').innerHTML, /Contoh perenggan yang dipertingkat/);
+  const savedAfterAI = h.storage.getItem(STORAGE_KEY);
+  for (let i = 0; i < 2; i++) {
+    await h.node('copy0').onclick();
+    assert.equal(h.copied.at(-1), vividFeedback.improvedParagraph);
+    assert.equal(h.node('copy0').textContent, 'Disalin ✓');
+    t.mock.timers.tick(1800);
+    assert.equal(h.node('copy0').textContent, 'Salin');
+    assert.equal(h.storage.getItem(STORAGE_KEY), savedAfterAI);
+    assert.deepEqual(h.state().drafts[id].paragraphs, values);
+    assert.equal(h.state().drafts[id].text, values.join('\n\n'));
+    values.forEach((value, j) => assert.equal(h.node(`#essay-paragraph-${j + 1}`).value, value));
+  }
+  h.node('#modal').close();
+  values[2] += ' Saya minum air.';
+  const editor = h.node('#essay-paragraph-3'); editor.value = values[2];
+  h.root.oninput({ target: editor });
+  const loaded = await appHarness(t, { year: 5, activity: 'essay', savedStorage: h.storage });
+  assert.deepEqual(loaded.state().drafts[id].paragraphs, values);
+  assert.equal(loaded.state().drafts[id].title, original.title);
+  assert.equal(loaded.state().drafts[id].contentId, original.contentId);
+  assert.equal(loaded.state().drafts[id].stage, original.stage);
+  assert.equal(loaded.state().year, 5);
 });
 
 test('the single header Tahun selector controls Semua Tahun while preserving essay identity and actual AI year', async t => {

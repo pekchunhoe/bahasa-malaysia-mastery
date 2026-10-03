@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildEssayParagraphContext, combineEssay, essayParagraphs } from '../js/essay-paragraphs.js';
 import { actionActivities, tutorActions, tutorRequest, buildTutorPrompt, buildExternalTutorPrompt, cacheIdentity, essayExampleActions } from '../js/tutor-actions.js';
-import { exampleFeedback } from './fixtures/essay-examples.mjs';
+import { exampleFeedback, vividFeedback } from './fixtures/essay-examples.mjs';
 import { createAIService } from '../js/ai-teacher.js';
 import { createTeacherHandler } from '../server/ai-handler.js';
 import { createStore } from '../js/state.js';
@@ -34,7 +34,7 @@ for (let index = 1; index <= 4; index++) {
       }
       assert.ok(!prompt.includes('MUST_NOT_LEAK'));
       let captured;
-      const feedback = essayExampleActions.includes(action) ? exampleFeedback : { ok: true, summary: 'Panduan.', errors: [], suggestions: [], explanation: 'Fikir dahulu.', example: null };
+      const feedback = action === 'essay_vivid' ? vividFeedback : essayExampleActions.includes(action) ? exampleFeedback : { ok: true, summary: 'Panduan.', errors: [], suggestions: [], explanation: 'Fikir dahulu.', example: null };
       const handler = createTeacherHandler({ env: { GEMINI_API_KEY: 'fixture-private', GEMINI_FAST_MODEL: 'configured-model' },
         limiter: { acquire: () => () => {} }, generate: async input => { captured = input; return JSON.stringify(feedback); } });
       const service = createAIService({ fetcher: (url, options) => {

@@ -8,3 +8,8 @@ export const exampleFeedback = {
     { type: 'paragraph', text: 'Selepas acara itu, saya berehat di bawah khemah rumah sukan. Walaupun berasa penat, saya tetap gembira.' },
   ],
 };
+export const vividFeedback = {
+  ...exampleFeedback,
+  improvedParagraph: 'Selepas acara itu, saya berehat di bawah khemah rumah sukan. Walaupun berasa penat, saya tetap gembira.',
+  examples: exampleFeedback.examples.slice(0, 2),
+};

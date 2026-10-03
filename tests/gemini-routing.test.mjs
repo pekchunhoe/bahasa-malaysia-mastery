@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createTeacherHandler } from "../server/ai-handler.js";
 import { createAIService } from "../js/ai-teacher.js";
 import { actionActivities, buildTutorPrompt, essayHintFeedbackSchema, tutorActions, tutorRequest, essayExampleActions, essayExampleFeedbackSchema, normalizeFeedback } from "../js/tutor-actions.js";
-import { exampleFeedback } from './fixtures/essay-examples.mjs';
+import { exampleFeedback, vividFeedback } from './fixtures/essay-examples.mjs';
+import { essayVividFeedbackSchema } from '../js/tutor-actions.js';
 import endpoint from "../api/gemini.js";
 import legacyEndpoint from "../api/ai/tutor.js";
 import { openTeacher } from "../components/ai-teacher.js";
@@ -59,7 +60,7 @@ test("every direct action traverses frontend, shared handler and real SDK with o
   } });
   for (const [action, config] of Object.entries(tutorActions)) {
     if (config.mode !== "api") continue;
-    currentFeedback = essayExampleActions.includes(action) ? exampleFeedback : feedback;
+    currentFeedback = action === 'essay_vivid' ? vividFeedback : essayExampleActions.includes(action) ? exampleFeedback : feedback;
     const raw = input(action, { model: "client-override-ignored" });
     const original = structuredClone(raw);
     const result = await service.request(raw);
@@ -73,7 +74,7 @@ test("every direct action traverses frontend, shared handler and real SDK with o
     assert.equal(sent.generation_config.max_output_tokens, 900);
     if (action === "essay_next_step")
       assert.deepEqual(sent.response_format.schema, essayHintFeedbackSchema);
-    if (essayExampleActions.includes(action)) assert.deepEqual(sent.response_format.schema, essayExampleFeedbackSchema);
+    if (essayExampleActions.includes(action)) assert.deepEqual(sent.response_format.schema, action === 'essay_vivid' ? essayVividFeedbackSchema : essayExampleFeedbackSchema);
   }
   assert.equal(captured.length, 11);
 });
