@@ -20,6 +20,7 @@ import { renderHome, renderDrafts } from "../components/home.js";
 import { activityRegistry } from "../activities/registry.js";
 import { vocabularyCards } from "../activities/vocabulary.js";
 import { watchForDeploymentUpdate } from "./deployment-version.js";
+import { createDeploymentUpdateNotice } from '../components/deployment-update.js';
 import { essayTopicById, writingTopicsFor } from "./essay-service.js";
 import { topicResults, revisionHistory } from "../components/essay-catalog.js";
 import { essayParagraphs, combineEssay, buildEssayParagraphContext, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
@@ -28,7 +29,6 @@ const store = createStore(),
   ai = createAIService();
 let pack,
   draft,
-  updateAvailable = false,
   paragraphSelection = "",
   activeSpeechCleanup = () => {};
 const speech = createSpeechService({
@@ -63,8 +63,6 @@ function status() {
     el.textContent = store.persistent ? `✓ ${labels.saved}` : labels.temporary;
     el.classList.toggle("storage-warning", !store.persistent);
   });
-  const updateButton = document.querySelector("[data-update]");
-  if (updateButton) updateButton.disabled = !store.persistent;
 }
 store.subscribe(status);
 function prepare() {
@@ -123,7 +121,7 @@ function render() {
   if (draft?.curriculumId === "demo")
     view = '<p class="notice">Draf ini bermula dalam DEMO Fasa 1. Tulisan asal kamu kekal disimpan.</p>' + view;
   document.querySelector("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="#home"><span class="brand-icon">${icon("book")}</span><span>Bahasa Melayu<strong>Mastery<span class="brand-dot">.</span></strong></span></a><div class="sidebar-caption">RUANG BELAJAR KAMU</div><nav aria-label="Navigasi utama">${navigation.map((n) => `<a class="nav-item ${n.id === route ? "active" : ""}" href="#${n.id}" ${n.id === route ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${e(n.label)}</span>${n.id === route ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom"><div class="sidebar-quote">${icon("sprout")}<p>Idea kamu berharga.<br><strong>Mari kembangkannya.</strong></p></div><div class="sidebar-footer"><span class="tiny-dot"></span> ${appConfig.subtitle}</div></div></aside><div class="main-shell"><header class="topbar"><span class="breadcrumb">Ruang belajar <span>/</span> <strong>${e(nav.label)}</strong></span><div class="topbar-right"><span class="demo-tag">MASTER 2026</span><label class="year-select">${yearLabel}<select id="year-select" aria-label="Pilih ${yearLabel.toLocaleLowerCase('ms')}">${yearOptions}</select></label><span class="profile-icon" aria-label="Murid">M</span></div></header>${updateAvailable ? '<div class="update-banner" role="status">Versi baharu tersedia. Draf kamu kekal disimpan. <button class="small-button" data-update>Muat semula apabila bersedia</button></div>' : ""}<main id="main" tabindex="-1">${route !== "home" ? `<div class="page-heading"><div><span class="eyebrow">${pageEyebrow}</span><h1>${e(nav.label)}</h1><p>${e(nav.description || "Sambung menulis, bila-bila masa kamu bersedia.")}</p></div>${draft ? `<div class="actions"><button class="button" data-new-draft>Draf baharu</button><button class="button" data-export="${e(draft.id)}">Muat turun draf</button></div>` : ""}</div>` : ""}${view}<footer class="page-footer"><span>${icon("sprout")} Belajar berfikir. Berani menulis.</span><span>Ejaan & Imlak 2026 - Penulisan sendiri</span></footer><p class="global-save small" data-save-status aria-live="polite"></p></main></div>`;
+    `<aside class="sidebar"><a class="brand" href="#home"><span class="brand-icon">${icon("book")}</span><span>Bahasa Melayu<strong>Mastery<span class="brand-dot">.</span></strong></span></a><div class="sidebar-caption">RUANG BELAJAR KAMU</div><nav aria-label="Navigasi utama">${navigation.map((n) => `<a class="nav-item ${n.id === route ? "active" : ""}" href="#${n.id}" ${n.id === route ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${e(n.label)}</span>${n.id === route ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom"><div class="sidebar-quote">${icon("sprout")}<p>Idea kamu berharga.<br><strong>Mari kembangkannya.</strong></p></div><div class="sidebar-footer"><span class="tiny-dot"></span> ${appConfig.subtitle}</div></div></aside><div class="main-shell"><header class="topbar"><span class="breadcrumb">Ruang belajar <span>/</span> <strong>${e(nav.label)}</strong></span><div class="topbar-right"><span class="demo-tag">MASTER 2026</span><label class="year-select">${yearLabel}<select id="year-select" aria-label="Pilih ${yearLabel.toLocaleLowerCase('ms')}">${yearOptions}</select></label><span class="profile-icon" aria-label="Murid">M</span></div></header><main id="main" tabindex="-1">${route !== "home" ? `<div class="page-heading"><div><span class="eyebrow">${pageEyebrow}</span><h1>${e(nav.label)}</h1><p>${e(nav.description || "Sambung menulis, bila-bila masa kamu bersedia.")}</p></div>${draft ? `<div class="actions"><button class="button" data-new-draft>Draf baharu</button><button class="button" data-export="${e(draft.id)}">Muat turun draf</button></div>` : ""}</div>` : ""}${view}<footer class="page-footer"><span>${icon("sprout")} Belajar berfikir. Berani menulis.</span><span>Ejaan & Imlak 2026 - Penulisan sendiri</span></footer><p class="global-save small" data-save-status aria-live="polite"></p></main></div>`;
   status();
   bind();
   document.querySelectorAll("[data-speech-rate]").forEach((select) => {
@@ -612,10 +610,6 @@ function bind() {
       write({ lines: [...draft.lines, draft.text.trim()], text: "" });
       render();
     }
-    if ("update" in d) {
-      if (store.persist()) location.reload();
-      else toast(labels.temporary);
-    }
   };
 }
 window.addEventListener("hashchange", () => {
@@ -636,15 +630,7 @@ window.addEventListener("pagehide", () => {
 });
 store.navigate(currentRoute());
 render();
-watchForDeploymentUpdate(() => {
-  updateAvailable = true;
-  // Insert a notice without re-rendering or moving the pupil's caret.
-  if (!document.querySelector(".update-banner"))
-    document
-      .querySelector(".topbar")
-      .insertAdjacentHTML(
-        "afterend",
-        '<div class="update-banner" role="status">Versi baharu tersedia. Draf kamu kekal disimpan. <button class="small-button" data-update>Muat semula apabila bersedia</button></div>',
-      );
-  status();
-});
+watchForDeploymentUpdate(createDeploymentUpdateNotice({
+  saveBeforeReload: () => store.persist(),
+  onSaveFailure: () => toast(labels.temporary),
+}));

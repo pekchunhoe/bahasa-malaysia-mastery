@@ -1170,16 +1170,32 @@ details p {
 .page-heading .eyebrow {
   margin-bottom: 8px;
 }
-.update-banner {
+.deployment-update-notice {
+  position: fixed;
+  z-index: 1000;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  max-width: 620px;
+  margin: auto;
   background: var(--color-primary-subtle);
-  color: var(--color-primary-strong);
-  padding: 13px 30px;
-  font-size: 12px;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px var(--color-shadow);
+  padding: 12px;
+  font-size: 14px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
 }
+.deployment-update-notice > div { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
+.deployment-update-notice p { margin: 4px 0 0; }
+.deployment-update-notice button { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+/* Allow the final editor controls to scroll above the persistent notice. */
+.deployment-update-visible .main-shell { padding-bottom: calc(180px + env(safe-area-inset-bottom)); }
 .storage-warning {
   color: var(--color-warning) !important;
 }
@@ -1791,11 +1807,6 @@ blockquote {
   .dialog-heading .icon-button {
     width: 35px;
     height: 35px;
-  }
-  .update-banner {
-    padding: 13px 18px;
-    align-items: flex-start;
-    flex-direction: column;
   }
   #toast {
     left: 50%;
