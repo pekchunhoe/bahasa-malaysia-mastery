@@ -30,10 +30,12 @@ const store = createStore(),
 let pack,
   draft,
   paragraphSelection = "",
+  activeSpeechStatus = () => {},
   activeSpeechCleanup = () => {};
 const speech = createSpeechService({
   onChange: (status) => {
     store.runtime.speech = status;
+    activeSpeechStatus(status);
     document.querySelectorAll("[data-speech]").forEach((button) => {
       button.disabled =
         button.dataset.speech === "pause"
@@ -49,6 +51,7 @@ const speech = createSpeechService({
 });
 function stopReading() {
   speech.stop();
+  activeSpeechStatus = () => {};
   activeSpeechCleanup();
   activeSpeechCleanup = () => {};
 }
@@ -96,6 +99,8 @@ function prepare() {
   }
 }
 function render() {
+  // A full render replaces speech targets; never leave a detached reading active.
+  stopReading();
   prepare();
   const state = store.state,
     route = state.activity,
@@ -185,15 +190,22 @@ function read(text, { statusSelector = "#speech-current", onError } = {}) {
   };
   stopReading();
   activeSpeechCleanup = clear;
+  let currentSentence = '';
+  activeSpeechStatus = status => {
+    if (target && currentSentence) target.textContent = status.speaking
+      ? `${status.paused ? 'Dijeda' : 'Sedang dibaca'}: ${currentSentence}` : '';
+  };
   const finish = () => {
     if (activeSpeechCleanup === clear) {
       clear();
+      activeSpeechStatus = () => {};
       activeSpeechCleanup = () => {};
     }
   };
   let failed = false;
   const started = speech.speak(text, {
       onSentence: (_, sentence) => {
+        currentSentence = sentence;
         if (target) target.textContent = `Sedang dibaca: ${sentence}`;
       },
       onEnd: finish,
@@ -301,6 +313,10 @@ function rememberParagraph() {
 }
 function bind() {
   const root = document.querySelector("#app");
+  const exampleDisclosure = document.querySelector('[data-essay-example]');
+  if (exampleDisclosure) exampleDisclosure.ontoggle = () => {
+    if (!exampleDisclosure.open) stopReading();
+  };
   root.oninput = (event) => {
     const target = event.target;
     if (target.dataset.essayParagraph && draft?.activity === 'essay') {

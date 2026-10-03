@@ -4,6 +4,7 @@ import {
   createSpeechService,
   selectMalayVoice,
   RATE_KEY,
+  NATURAL_RATE,
 } from "../js/speech-service.js";
 import { activityRegistry } from "../activities/registry.js";
 import { renderHome, renderDrafts } from "../components/home.js";
@@ -115,7 +116,7 @@ test("speech ignores blank input and persists valid speeds", () => {
   speech.setRate(1.25);
   assert.deepEqual(calls[0], { key: RATE_KEY, value: "1.25" });
   speech.speak("Saya membaca.");
-  assert.equal(calls.at(-1).rate, 1.25);
+  assert.equal(calls.at(-1).rate, 1.25 * NATURAL_RATE);
   speech.setRate(99);
   assert.equal(speech.rate, 1);
 });

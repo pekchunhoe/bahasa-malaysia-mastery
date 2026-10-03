@@ -6,7 +6,8 @@ import { createStore } from '../js/state.js';
 import { STORAGE_KEY } from '../js/storage.js';
 import { toast } from '../components/ui.js';
 import { actionActivities, buildExternalTutorPrompt } from '../js/tutor-actions.js';
-import { sentences } from '../js/learning-service.js';
+import { speechUnits } from '../js/speech-text.js';
+import { PARAGRAPH_PAUSE_MS } from '../js/speech-service.js';
 import { representativeEssay, externalHeadings } from './fixtures/essay-prompts.mjs';
 import { vividFeedback } from './fixtures/essay-examples.mjs';
 
@@ -50,7 +51,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     document: { querySelector: node, querySelectorAll: () => [], title: '' },
     window: { addEventListener: (name, callback) => { events[name] = callback; }, scrollTo() {} },
     SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
-    speechSynthesis: { getVoices: () => [{ lang: 'ms-MY' }], speak: u => spoken.push(u), cancel: () => cancellations.push(true) },
+    speechSynthesis: { getVoices: () => [{ lang: 'ms-MY' }], speak: u => spoken.push(u), cancel: () => cancellations.push(true), pause() {}, resume() {} },
     fetch: (...args) => { requests.push(args); if (apiResponse) return apiResponse(...args); throw new Error('No network permitted'); },
     navigator: { clipboard: { writeText: async text => { copied.push(text); } } },
   };
@@ -77,6 +78,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
 }
 
 test('Contoh Karangan reads only the active master model text and cleans up when hidden or changed', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const h = await appHarness(t, { year: 4, activity: 'essay' });
   const original = h.state().drafts[h.state().activeDrafts['4:essay']];
   const topic = h.pack.essayTopics.find(item => item.id === original.contentId);
@@ -84,13 +86,14 @@ test('Contoh Karangan reads only the active master model text and cleans up when
   const beforeDraft = JSON.stringify(h.state().drafts[original.id]);
   h.click({ readExample: topic.id });
   assert.match(h.node('#example-speech-current').textContent, /Sedang dibaca:/);
-  const expectedSentences = sentences(topic.model_text);
+  const expectedSentences = speechUnits(topic.model_text).map(unit => unit.text);
   for (let index = 0; index < expectedSentences.length; index++) {
     const utterance = h.spoken.at(-1);
     assert.equal(utterance.text, expectedSentences[index]);
     assert.ok(!utterance.text.includes('DRAF MURID'));
     assert.ok(!utterance.text.includes(topic.title));
     utterance.onend();
+    t.mock.timers.tick(PARAGRAPH_PAUSE_MS);
   }
   h.click({ readExample: topic.id });
   const first = h.spoken.at(-1);
@@ -112,8 +115,55 @@ test('Contoh Karangan reads only the active master model text and cleans up when
   active.onend();
   assert.equal(h.node('#example-speech-current').textContent, '');
   h.click({ readExample: next.id });
-  assert.equal(h.spoken.at(-1).text, sentences(next.model_text)[0]);
+  assert.equal(h.spoken.at(-1).text, speechUnits(next.model_text)[0].text);
   assert.equal(JSON.stringify(h.state().drafts[original.id]), beforeDraft);
+});
+
+test('pupil speech preserves source/state and paused status; native example collapse, year and navigation cancel gaps', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = await appHarness(t, { year: 4, activity: 'essay' });
+  const id = h.state().activeDrafts['4:essay'];
+  const text = 'Pada hari Ahad, saya pergi ke pantai.\n\n“Wah, cantiknya!” kata adik.\n\nAdakah kamu mahu bermain bersama-sama?';
+  h.type(text);
+  h.root.oninput({ target: { dataset: { writingFilter: 'query' }, value: 'keluarga' } });
+  const before = h.storage.getItem(STORAGE_KEY);
+  h.click({ readWriting: '' });
+  assert.equal(h.spoken.at(-1).text, 'Pada hari Ahad, saya pergi ke pantai.');
+  const first = h.spoken.at(-1);
+  h.click({ speech: 'pause' }); assert.match(h.node('#speech-current').textContent, /^Dijeda:/);
+  h.click({ speech: 'resume' }); assert.match(h.node('#speech-current').textContent, /^Sedang dibaca:/);
+  h.root.onchange({ target: { dataset: { speechRate: '' }, value: '0.75' } });
+  first.onend(); t.mock.timers.tick(PARAGRAPH_PAUSE_MS);
+  assert.equal(h.spoken.at(-1).text, '“Wah, cantiknya!” kata adik.');
+  assert.equal(h.spoken.at(-1).rate, 0.7125);
+  h.click({ readWriting: '' }); assert.equal(h.spoken.at(-1).text, first.text);
+  first.onend();
+  assert.equal(h.storage.getItem(STORAGE_KEY), before, 'TTS and speed preference never write draft state');
+  assert.equal(h.node('#essay-paragraph-1').value, text);
+  const topic = h.pack.essayTopics.find(item => item.id === h.state().drafts[id].contentId);
+  h.click({ readExample: topic.id });
+  const example = h.spoken.at(-1), disclosure = h.node('[data-essay-example]');
+  disclosure.open = false; disclosure.ontoggle();
+  const afterCollapse = h.spoken.length;
+  example.onend(); t.mock.timers.tick(1000);
+  assert.equal(h.spoken.length, afterCollapse); assert.equal(h.node('#example-speech-current').textContent, '');
+  h.click({ readWriting: '' }); const beforeRender = h.spoken.at(-1);
+  h.click({ resetWritingFilters: '' }); beforeRender.onend();
+  assert.equal(h.spoken.at(-1), beforeRender, 'a full render cancels detached reading');
+  h.click({ readWriting: '' }); h.spoken.at(-1).onend();
+  const beforeNavigation = h.spoken.length;
+  location.hash = '#home'; h.events.hashchange(); t.mock.timers.tick(1000);
+  assert.equal(h.spoken.length, beforeNavigation);
+  location.hash = '#essay'; h.events.hashchange();
+  h.click({ readWriting: '' }); const beforeYear = h.spoken.at(-1);
+  h.root.onchange({ target: { id: 'year-select', dataset: {}, value: '5' } });
+  h.node('#accept-confirm').onclick(); const countAfterYear = h.spoken.length;
+  beforeYear.onend(); t.mock.timers.tick(1000); assert.equal(h.spoken.length, countAfterYear);
+  assert.equal(h.state().drafts[id].text, text);
+  h.click({ readExample: h.state().drafts[h.state().activeDrafts['5:essay']].contentId });
+  const leaving = h.spoken.at(-1); h.events.pagehide();
+  const afterPageHide = h.spoken.length; leaving.onend(); t.mock.timers.tick(1000);
+  assert.equal(h.spoken.length, afterPageHide);
 });
 
 test('paragraph controllers combine live edits, scope every AI action, restore titles and protect drafts on API failure', async t => {
