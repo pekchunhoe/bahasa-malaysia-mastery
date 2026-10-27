@@ -2012,6 +2012,17 @@ blockquote {
 .keyword-meaning-card { margin-bottom: 0; }
 .expansion-detail-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--color-border); }
 .expansion-detail-card { margin-top: 12px; }
+.expansion-ai-pair { display: inline-grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 2px; min-width: 0; max-width: 100%; position: relative; }
+.expansion-ai-pair > .button { min-width: 0; flex-wrap: nowrap; }
+.expansion-ai-pair > .button > .icon { flex: 0 0 17px; }
+.expansion-activity .teacher-actions > .expansion-ai-pair { width: 100%; }
+.mini-prompt-button { display: inline-flex; align-items: center; justify-content: center; position: relative; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--color-text-secondary); }
+.mini-prompt-button::before { content: ''; position: absolute; width: 25px; height: 25px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); opacity: .7; }
+.mini-prompt-button .icon { width: 14px; height: 14px; position: relative; }
+.mini-prompt-button:hover:not(:disabled)::before { background: var(--color-primary-subtle); opacity: 1; }
+.mini-prompt-button:disabled { opacity: .4; cursor: default; }
+.mini-prompt-feedback { position: absolute; z-index: 3; top: 100%; right: 0; max-width: min(250px, calc(100vw - 48px)); padding: 4px 7px; margin-top: 2px; border: 1px solid var(--color-border); border-radius: 5px; background: var(--color-surface); color: var(--color-text); font-size: 11px; line-height: 1.4; pointer-events: none; }
+.mini-prompt-feedback:empty { padding: 0; border: 0; margin: 0; }
 .keyword-meaning-output, .meaning-languages, .meaning-languages > div { min-width: 0; }
 .meaning-languages { display: grid; gap: 12px; margin: 16px 0; }
 .meaning-languages > div { border: 1px solid var(--color-border); border-radius: 8px; padding: 12px; background: var(--color-surface); }

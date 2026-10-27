@@ -54,9 +54,10 @@ for (const file of all) {
         `Secret/server import in browser asset: ${file}`,
       );
     const relative = path.relative(root, file).replaceAll('\\', '/').replace(/^dist\//, '');
-    // The requested trilingual meaning card is the sole intentional Chinese UI.
+    // Only the meaning card and its exact external-prompt heading use Chinese.
     // Keep the original language check everywhere else, independently of secrets.
-    if (/[\u3400-\u9fff]/u.test(source) && relative !== 'components/expansion-ai.js')
+    const languageChecked = relative === 'js/expansion-tutor.js' ? source.replace('中文解释（华文）', '') : source;
+    if (/[\u3400-\u9fff]/u.test(languageChecked) && relative !== 'components/expansion-ai.js')
       throw new Error(`Unexpected Chinese label outside keyword meaning: ${file}`);
   }
 }

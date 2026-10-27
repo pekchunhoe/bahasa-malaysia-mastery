@@ -43,6 +43,8 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
   let rendered = '';
   Object.defineProperty(node('#app'), 'innerHTML', { get: () => rendered, set(html) {
     rendered = html;
+    const student = html.match(/<textarea id="student-text"[^>]*>([\s\S]*?)<\/textarea>/);
+    if (student) node('#student-text').value = student[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
     for (const match of html.matchAll(/<textarea id="essay-paragraph-(\d)"[^>]*>([\s\S]*?)<\/textarea>/g)) {
       const editor = node(`#essay-paragraph-${match[1]}`);
       editor.dataset = { essayParagraph: match[1] };
@@ -75,7 +77,7 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
     if (activity === 'essay') {
       const editor = node('#essay-paragraph-1'); editor.value = value;
       root.oninput({ target: editor });
-    } else root.oninput({ target: { dataset: { draftField: 'text' }, value } });
+    } else { node('#student-text').value = value; root.oninput({ target: { dataset: { draftField: 'text' }, value } }); }
   };
   const state = () => JSON.parse(storage.getItem(STORAGE_KEY));
   return { root, node, click, type, state, spoken, cancellations, requests, events, pack, storage, copied };
@@ -92,6 +94,131 @@ function expansionContext(h) {
   h.node('#student-text').value = 'Saya membantu ibu menyediakan sarapan.';
   h.type('Saya membantu ibu menyediakan sarapan.');
 }
+
+function miniPromptControl(h, action) {
+  const button = h.node(`mini-${action}`), feedback = h.node(`mini-feedback-${action}`);
+  Object.assign(button, { dataset: { copyExpansionPrompt: action }, disabled: false, isConnected: true,
+    innerHTML: '<svg>copy icon</svg>', closest: () => ({ querySelector: () => feedback }) });
+  feedback.isConnected = true; button.setAttribute('aria-label', 'Salin Prompt');
+  return { button, feedback, copy: () => h.root.onclick({ target: { closest: () => button } }) };
+}
+
+test('seven mini copy controls use their own action and live unsaved editors without fetching, saving or replacing results', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = await appHarness(t, { year: 4, activity: 'expansion' }); expansionContext(h);
+  for (const detail of expansionDetails) h.root.onchange({ target: { dataset: { detail: detail.id }, checked: true } });
+  h.node('#original-input').value = 'Saya membantu ibu membuat roti.';
+  h.node('#student-text').value = 'Saya membantu ibu membuat roti yang sedap untuk sarapan.';
+  h.node('#keyword-meaning-result').innerHTML = 'EXISTING MEANING';
+  h.node('#expansion-detail-result').innerHTML = 'EXISTING DETAILS';
+  const before = h.storage.getItem(STORAGE_KEY);
+  for (const action of actionActivities.expansion) {
+    const control = miniPromptControl(h, action); await control.copy();
+    const prompt = h.copied.at(-1);
+    assert.equal(prompt, buildExternalTutorPrompt({ activity: 'expansion', action, year: 4, title: 'Ayat',
+      keywordMode: 'custom', keyword: 'membantu', situationMode: 'builtin', situationId: 'S001',
+      originalSentence: h.node('#original-input').value, studentText: h.node('#student-text').value,
+      expansionOptions: expansionDetails.map(detail => detail.id) }));
+    assert.equal(control.feedback.textContent, 'Disalin ✓'); assert.equal(control.button.innerHTML, '<svg>copy icon</svg>');
+    assert.equal(h.storage.getItem(STORAGE_KEY), before); assert.equal(h.requests.length, 0);
+    assert.equal(h.node('#keyword-meaning-result').innerHTML, 'EXISTING MEANING');
+    assert.equal(h.node('#expansion-detail-result').innerHTML, 'EXISTING DETAILS');
+  }
+});
+
+test('dedicated mini copies follow changed selections and reject empty selections without writing or network calls', async t => {
+  const h = await appHarness(t, { activity: 'expansion' }); expansionContext(h);
+  const control = miniPromptControl(h, 'sentence_expand_details');
+  for (const selected of [['masa', 'tempat', 'sebab', 'kata_hubung'], ['cara', 'perasaan', 'kata_adjektif'], []]) {
+    for (const detail of expansionDetails) h.root.onchange({ target: { dataset: { detail: detail.id }, checked: selected.includes(detail.id) } });
+    const before = h.storage.getItem(STORAGE_KEY), copies = h.copied.length;
+    await control.copy();
+    if (selected.length) {
+      assert.equal(h.copied.length, copies + 1);
+      const line = h.copied.at(-1).match(/MATLAMAT BUTIRAN DIPILIH[^\n]+/)[0];
+      for (const detail of expansionDetails) assert.equal(line.includes(detail.label), selected.includes(detail.id), detail.id);
+    } else {
+      assert.equal(h.copied.length, copies);
+      assert.equal(h.node('#detail-ai-status').textContent, 'Pilih sekurang-kurangnya satu butiran dahulu.');
+    }
+    assert.equal(h.storage.getItem(STORAGE_KEY), before); assert.equal(h.requests.length, 0);
+  }
+});
+
+test('mini prompts use newly activated custom keywords, custom situations and current year', async t => {
+  const h = await appHarness(t, { year: 4, activity: 'expansion' }); expansionContext(h);
+  const control = miniPromptControl(h, 'sentence_expand'); await control.copy();
+  h.node('#custom-keyword').value = 'menyusun';
+  h.root.onsubmit({ target: { id: 'custom-keyword-form' }, preventDefault() {} });
+  h.root.onchange({ target: { dataset: { situationMode: '' }, value: 'custom' } });
+  h.node('#custom-situation').value = 'Saya menyusun buku di perpustakaan sekolah.';
+  h.root.onsubmit({ target: { id: 'custom-situation-form' }, preventDefault() {} });
+  h.node('#original-input').value = 'Saya menyusun buku.';
+  h.node('#student-text').value = 'Saya menyusun buku dengan cermat.';
+  const before = h.storage.getItem(STORAGE_KEY); await control.copy();
+  assert.match(h.copied.at(-1), /Kata kunci \(sendiri\):\n│ menyusun/);
+  assert.match(h.copied.at(-1), /Saya menyusun buku di perpustakaan sekolah/);
+  assert.ok(!h.copied.at(-1).slice(h.copied.at(-1).indexOf('【DATA MURID')).includes('membantu'));
+  assert.equal(h.storage.getItem(STORAGE_KEY), before);
+  h.root.onchange({ target: { dataset: {}, id: 'year-select', value: '6' } }); h.node('#accept-confirm').onclick();
+  await miniPromptControl(h, 'sentence_hint').copy();
+  assert.match(h.copied.at(-1), /PANDUAN CONTOH TAHUN 6/); assert.equal(h.requests.length, 0);
+});
+
+test('cleared live writing prevents required mini prompts but empty-draft guidance remains supported without saving', async t => {
+  const h = await appHarness(t, { activity: 'expansion' }); expansionContext(h);
+  h.root.onchange({ target: { dataset: { detail: 'tempat' }, checked: true } });
+  const before = h.storage.getItem(STORAGE_KEY); h.node('#student-text').value = ''; h.node('#original-input').value = '';
+  for (const action of ['sentence_check', 'sentence_expand', 'sentence_vivid']) {
+    const control = miniPromptControl(h, action); await control.copy();
+    assert.match(control.feedback.textContent, /Tulis sesuatu dahulu/);
+  }
+  assert.equal(h.copied.length, 0);
+  for (const action of ['keyword_meaning', 'sentence_hint', 'vocabulary_help', 'sentence_expand_details']) {
+    await miniPromptControl(h, action).copy(); assert.match(h.copied.at(-1), /Ayat semasa belum diisi/);
+    assert.match(h.copied.at(-1), /Ayat asal:\n│ \[Belum ada\.\]/);
+  }
+  assert.equal(h.storage.getItem(STORAGE_KEY), before); assert.equal(h.requests.length, 0);
+});
+
+test('copying during an internal request leaves its signal, loading card and completion intact', async t => {
+  let release, signal;
+  const h = await appHarness(t, { activity: 'expansion', apiResponse: (_, init) => {
+    signal = init.signal; return new Promise(resolve => { release = () => resolve(Response.json({ ok: true, action: 'keyword_meaning', data: meaningFeedback })); });
+  } }); expansionContext(h); h.click({ keywordMeaning: '' }); await new Promise(resolve => setImmediate(resolve));
+  const before = h.storage.getItem(STORAGE_KEY), card = h.node('#keyword-meaning-result').innerHTML;
+  await miniPromptControl(h, 'sentence_expand').copy();
+  assert.equal(h.requests.length, 1); assert.equal(signal.aborted, false);
+  assert.equal(h.node('#keyword-meaning-result').innerHTML, card); assert.equal(h.storage.getItem(STORAGE_KEY), before);
+  release(); await new Promise(resolve => setImmediate(resolve));
+  assert.match(h.node('#meaning-teacher-result').innerHTML, /Bahasa Melayu/);
+});
+
+test('clipboard denial gives compact feedback and permits a fresh-context retry without modifying writing', async t => {
+  const h = await appHarness(t, { activity: 'expansion' }); expansionContext(h);
+  const control = miniPromptControl(h, 'sentence_hint'), writeText = navigator.clipboard.writeText;
+  navigator.clipboard.writeText = async () => { throw Error('denied'); };
+  document.createElement = () => ({ style: {}, setAttribute() {}, select() {}, remove() {} });
+  document.body = { append() {} }; document.execCommand = () => false;
+  const before = h.storage.getItem(STORAGE_KEY); await control.copy();
+  assert.match(control.feedback.textContent, /Tidak dapat menyalin sekarang/); assert.equal(control.button.innerHTML, '<svg>copy icon</svg>');
+  navigator.clipboard.writeText = writeText; h.node('#student-text').value = 'Saya membantu ibu menyediakan buah.';
+  await control.copy(); assert.match(h.copied.at(-1), /menyediakan buah/);
+  assert.equal(h.storage.getItem(STORAGE_KEY), before); assert.equal(h.requests.length, 0);
+});
+
+test('restored legacy expansion copies its protected original and writing without inventing a situation', async t => {
+  const h = await appHarness(t, { year: 4, activity: 'expansion' });
+  const keyword = h.pack.vocabulary[0].word;
+  h.node('#original-input').value = `Saya ${keyword}.`; h.click({ lockOriginal: '' });
+  h.type(`Saya ${keyword} dengan baik.`); h.events.pagehide();
+  const loaded = await appHarness(t, { year: 4, activity: 'expansion', savedStorage: h.storage });
+  const before = loaded.storage.getItem(STORAGE_KEY); await miniPromptControl(loaded, 'sentence_check').copy();
+  assert.ok(loaded.copied.at(-1).includes(`Saya ${keyword} dengan baik.`));
+  assert.ok(loaded.copied.at(-1).includes(`Saya ${keyword}.`));
+  assert.match(loaded.copied.at(-1), /Situasi \(sedia ada\):\n│ \[Belum ada\.\]/);
+  assert.equal(loaded.storage.getItem(STORAGE_KEY), before); assert.equal(loaded.requests.length, 0);
+});
 
 test('dedicated controller gives accessible empty-selection feedback without a request', async t => {
   const h = await appHarness(t, { activity: 'expansion' }); expansionContext(h);

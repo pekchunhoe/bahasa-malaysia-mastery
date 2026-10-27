@@ -19,6 +19,7 @@ const paths = {
   folder: '<path d="M3 20V4h7l3 3h8v13Z"/>',
   arrow: '<path d="M4 12h16m-6-6 6 6-6 6"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   sound:
     '<path d="m11 4-6 5H2v6h3l6 5ZM15 8a6 6 0 0 1 0 8m3-12a11 11 0 0 1 0 16"/>',
   search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',

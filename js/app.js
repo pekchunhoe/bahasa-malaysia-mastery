@@ -29,6 +29,7 @@ import { keywordOptions } from '../components/expansion-keyword.js';
 import { activeSituation, cleanSituation, situationError, situations } from './expansion-situations.js';
 import { situationOptions } from '../components/expansion-situation.js';
 import { detailExpansionAction } from './expansion-tutor.js';
+import { promptCopyFeedback } from '../components/expansion-prompt.js';
 
 const expansionTeachers = new Map();
 function expansionTeacherIdentity(mode = 'general') {
@@ -285,6 +286,44 @@ function syncEssayEditors() {
   if (JSON.stringify(paragraphs) !== JSON.stringify(draft.paragraphs)) write({ paragraphs });
   return true;
 }
+// Shared live snapshot for internal and clipboard-only expansion actions.
+// Reading a snapshot never writes to the draft, triggers autosave or clears AI output.
+function expansionTutorRequest(action) {
+  const focus = expansionKeyword(pack, draft);
+  let detailContext = {};
+  if (action === detailExpansionAction) {
+    const checkboxes = [...document.querySelectorAll('[data-detail]')];
+    const selected = checkboxes.length === 8
+      ? checkboxes.filter(control => control.checked).map(control => control.dataset.detail)
+      : selectedExpansionDetails(draft);
+    detailContext = { expansionOptions: selected, detailSelections: detailSelectionStates(selected) };
+  }
+  return {
+    action, activity: 'expansion', year: store.state.year, title: draft.title,
+    itemId: draft.itemId || '', referenceText: selectedItem(pack, store.state, draft)?.text || '',
+    keywordMode: focus.mode, keyword: focus.keyword, ...activeSituation(draft),
+    originalSentence: draft.original || (document.querySelector('#original-input')?.value ?? draft.fields.originalDraft ?? ''),
+    studentText: document.querySelector('#student-text')?.value ?? draft.text ?? '',
+    ...detailContext,
+  };
+}
+function copyExpansionPrompt(action, button) {
+  if (draft?.activity !== 'expansion') return;
+  const feedback = button.closest('.expansion-ai-pair').querySelector('[data-prompt-copy-feedback]');
+  try {
+    const request = expansionTutorRequest(action);
+    if (action === detailExpansionAction && !request.expansionOptions.length)
+      throw Error('Pilih sekurang-kurangnya satu butiran dahulu.');
+    const prompt = ai.externalPrompt(request); // Shared validation, no network or persistence.
+    if (action === detailExpansionAction) document.querySelector('#detail-ai-status').textContent = '';
+    return copyWithConfirmation(button, prompt, { feedback })
+      .catch(() => promptCopyFeedback(button, 'Tidak dapat menyalin sekarang. Cuba lagi.'));
+  } catch (error) {
+    if (action === detailExpansionAction && error.message === 'Pilih sekurang-kurangnya satu butiran dahulu.')
+      document.querySelector('#detail-ai-status').textContent = error.message;
+    promptCopyFeedback(button, error.message);
+  }
+}
 function aiRequest(action, word, paragraphIndex, promptButton) {
   if (action === detailExpansionAction && draft?.activity === 'expansion') {
     const message = selectedExpansionDetails(draft).length ? '' : 'Pilih sekurang-kurangnya satu butiran dahulu.';
@@ -334,16 +373,7 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
       ...(store.state.activity === "essay" ? { stage: draft.stage } : {}),
       itemId: word?.id || draft?.itemId || "",
       ...(word || !["sentence", "expansion"].includes(store.state.activity) ? {} : { referenceText: selectedItem(pack, store.state, draft)?.text || "" }),
-      ...(!word && draft?.activity === 'expansion' ? {
-        keywordMode: expansionKeyword(pack, draft).mode,
-        keyword: expansionKeyword(pack, draft).keyword,
-        originalSentence: draft.original || document.querySelector('#original-input')?.value || draft.fields.originalDraft || '',
-        ...(action === detailExpansionAction ? {
-          expansionOptions: selectedExpansionDetails(draft),
-          detailSelections: detailSelectionStates(selectedExpansionDetails(draft)),
-        } : {}),
-        ...activeSituation(draft),
-      } : {}),
+      ...(!word && draft?.activity === 'expansion' ? expansionTutorRequest(action) : {}),
       ...(!word && draft?.activity === 'essay' && paragraphIndex
         ? buildEssayParagraphContext({ title: store.state.selectedEssayTitle[store.state.year] || draft.title,
             year: essayTopicById(draft.contentId)?.year || store.state.year, paragraphIndex, paragraphs: essayParagraphs(draft) }) : {}),
@@ -589,6 +619,7 @@ function bind() {
     const button = event.target.closest("button");
     if (!button || button.disabled) return;
     const d = button.dataset;
+    if (d.copyExpansionPrompt) return copyExpansionPrompt(d.copyExpansionPrompt, button);
     if ('keywordMeaning' in d) return aiRequest('keyword_meaning');
     if ('hideExample' in d) {
       const disclosure = button.closest('[data-essay-example]');

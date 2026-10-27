@@ -25,26 +25,26 @@ export async function copyText(text) {
     if (selection) active.setSelectionRange(...selection);
   }
 }
-export async function copyWithConfirmation(button, text) {
+export async function copyWithConfirmation(button, text, { feedback = button } = {}) {
   if (button.disabled || copying.has(button)) return;
   const existing = confirmations.get(button);
-  const state = existing || { text: button.textContent, label: button.getAttribute('aria-label') || button.textContent };
+  const state = existing || { text: feedback === button ? button.textContent : '', label: button.getAttribute('aria-label') || button.textContent };
   // Keep keyboard focus on the native button while preventing duplicate writes.
   copying.add(button);
   clearTimeout(state.timer);
   confirmations.delete(button);
   if (existing) {
-    button.textContent = state.text;
+    feedback.textContent = state.text;
     button.setAttribute('aria-label', state.label);
   }
   button.setAttribute('aria-busy', 'true');
   try {
     await copyText(text);
-    button.textContent = 'Disalin ✓';
+    feedback.textContent = 'Disalin ✓';
     button.setAttribute('aria-label', `${state.label} — Disalin ✓`);
     state.timer = setTimeout(() => {
       if (button.isConnected) {
-        button.textContent = state.text;
+        feedback.textContent = state.text;
         button.setAttribute('aria-label', state.label);
       }
       confirmations.delete(button);

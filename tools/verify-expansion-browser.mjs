@@ -9,6 +9,7 @@ import { meaningFeedback, expansionFeedback } from '../tests/fixtures/expansion-
 import { reviewedExpansionCases, reviewedFeedback } from '../tests/fixtures/expansion-details.mjs';
 import { detailFeedback } from '../tests/fixtures/expansion-separation.mjs';
 import { expansionDetails, detailSelectionStates } from '../js/expansion.js';
+import { actionActivities } from '../js/tutor-actions.js';
 const origin = process.argv[2] || process.env.BM_TEST_ORIGIN || 'http://localhost:4174';
 const executable = process.env.BM_TEST_BROWSER || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 await access(executable);
@@ -30,7 +31,7 @@ async function until(fn) {
 function send(method, params = {}) {
   const id = ++seq;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { pending.delete(id); reject(Error(`CDP timeout: ${method}`)); }, 15000);
+    const timer = setTimeout(() => { pending.delete(id); reject(Error(`CDP timeout: ${method}`)); }, method === 'Page.captureScreenshot' ? 30000 : 15000);
     pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
     socket.send(JSON.stringify({ id, method, params }));
   });
@@ -45,6 +46,11 @@ const type = async (selector, value) => evaluate(`(() => { const el=document.que
 const click = async selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
 const state = () => evaluate(`JSON.parse(localStorage.getItem('bmMastery:state:v1'))`);
 const saved = async () => { const s = await state(); return s.drafts[s.activeDrafts[`${s.year}:expansion`]]; };
+async function reloadPage(selector) {
+  const previous = await evaluate('performance.timeOrigin');
+  await send('Page.reload');
+  await until(() => evaluate(`performance.timeOrigin!==${previous} && document.readyState==='complete' && !!document.querySelector(${JSON.stringify(selector)})`));
+}
 async function key(key, code, virtualKey) {
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: virtualKey, ...(key === 'Enter' ? { text: '\r' } : {}) });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: virtualKey });
@@ -52,10 +58,18 @@ async function key(key, code, virtualKey) {
 async function screenshot(name) {
   const landscapePhone = await evaluate('innerHeight < 500');
   await evaluate(landscapePhone ? `document.querySelector('.expansion-situation').scrollIntoView({block:'start'})` : 'window.scrollTo(0,0)');
-  // Edge can repeat compositor tiles in very short full-page captures. Keep
-  // landscape-phone evidence to the actual viewport; DOM bounds cover the page.
-  const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: !landscapePhone });
+  // Viewport captures avoid Edge compositor stalls on very tall activity pages.
+  // The existing DOM bounds checks still inspect controls across the whole page.
+  const { data } = await captureScreenshot({ format: 'png', captureBeyondViewport: false }, name);
   await writeFile(path.join(output, name + '.png'), Buffer.from(data, 'base64'));
+}
+async function captureScreenshot(options, name) {
+  // The primary tab's page surface follows emulated viewport size and scrolling.
+  try {
+    await send('Page.bringToFront');
+    return await send('Page.captureScreenshot', { ...options, fromSurface: true });
+  }
+  catch (error) { throw Error(`Screenshot ${name}: ${error.message}`); }
 }
 try {
   const port = (await until(async () => (await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')))).split('\n')[0];
@@ -69,9 +83,12 @@ try {
       if (message.error) entry.reject(Error(JSON.stringify(message.error))); else entry.resolve(message.result);
     } else if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails);
   };
-  const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-  const page = targets.find(target => target.id === targetId);
+  // Use the isolated browser's initial tab. Edge's secondary headless tabs can
+  // stall surface captures or return the initial tab's blank visible view.
+  const page = await until(async () => {
+    const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+    return targets.find(target => target.type === 'page' && target.url === 'about:blank');
+  });
   const receive = socket.onmessage;
   socket.close(); socket = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
@@ -174,7 +191,7 @@ try {
   await click('input[data-keyword-mode][value="builtin"]');
   assert.match(await evaluate(`document.querySelector('.keyword-focus').textContent`), /emak/);
   await click('input[data-keyword-mode][value="custom"]');
-  await send('Page.reload'); await until(() => evaluate(`!!document.querySelector('#custom-keyword')`));
+  await reloadPage('#custom-keyword');
   assert.equal((await saved()).fields.customKeyword, 'kasih sayang'); assert.equal((await saved()).id, firstId);
   assert.equal((await saved()).original, 'Saya membantu emak.');
   assert.equal((await saved()).text, 'Emak menunjukkan kasih sayang kepada kami.');
@@ -266,7 +283,7 @@ try {
   assert.equal(await evaluate('window.__copied.length'), copiesBeforeFailure);
   assert.match(await evaluate(`document.querySelector('#toast').textContent`), /Tidak dapat menyalin/);
   await evaluate('window.__clipboardFail=false');
-  await send('Page.reload'); await until(() => evaluate(`!!document.querySelector('#custom-situation')`));
+  await reloadPage('#custom-situation');
   assert.equal((await saved()).fields.situationMode, 'custom'); assert.equal((await saved()).fields.customSituation, customSituation);
   assert.equal((await saved()).text, pupilWriting);
   await click('input[data-situation-mode][value="builtin"]');
@@ -313,7 +330,7 @@ try {
   }
   await send('Emulation.setDeviceMetricsOverride', { width: 360, height: 800, deviceScaleFactor: 1, mobile: false });
   await evaluate(`document.querySelector('#meaning-teacher-result').scrollIntoView({block:'start'})`);
-  const meaningScreenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  const meaningScreenshot = await captureScreenshot({ format: 'png', captureBeyondViewport: false }, 'phone-meaning-visible');
   await writeFile(path.join(output, 'situation-phone-meaning-visible.png'), Buffer.from(meaningScreenshot.data, 'base64'));
   // Detail-aware checks use reviewed fixtures without replacing earlier coverage.
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -425,7 +442,7 @@ try {
       assert.ok(bounds.left>=0 && bounds.right<=width && bounds.height>=44 && bounds.top>=0 && bounds.bottom<=height, name);
       assert.equal(bounds.overflow,false,name);
     }
-    const capture=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+    const capture=await captureScreenshot({format:'png',captureBeyondViewport:false}, `dedicated-${name}`);
     await writeFile(path.join(output,`dedicated-${name}.png`),Buffer.from(capture.data,'base64'));
     results.push({name:'dedicated-'+name,width,height,status:'PASS'});
   }
@@ -435,16 +452,124 @@ try {
     await evaluate(`document.querySelector('#teacher-result [data-copy-example]').scrollIntoView({block:'center'})`);
     const bounds = await evaluate(`(() => {const el=document.querySelector('#teacher-result [data-copy-example]'),r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height,pageOverflow:document.documentElement.scrollWidth>innerWidth};})()`);
     assert.ok(bounds.left >= 0 && bounds.right <= width && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= height); assert.equal(bounds.pageOverflow, false);
-    const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    const capture = await captureScreenshot({ format: 'png', captureBeyondViewport: false }, `detail-rich-${name}`);
     await writeFile(path.join(output, `detail-rich-${name}.png`), Buffer.from(capture.data, 'base64'));
     await evaluate(`document.querySelector('#modal').close()`);
     assert.equal(await evaluate(`document.querySelectorAll('[data-local-check],#local-feedback').length`), 0);
     results.push({ name: 'detail-rich-' + name, width, height, status: 'PASS' });
   }
   assert.equal((await saved()).text, richWriting);
+  // One-click external prompts use the actual clipboard boundary, never Gemini.
+  const miniSelector = action => `[data-copy-expansion-prompt="${action}"]`;
+  const copyMini = async action => {
+    const copies = await evaluate('window.__copied.length');
+    const requests = await evaluate('window.__requests.length');
+    const before = await evaluate(`localStorage.getItem('bmMastery:state:v1')`);
+    await click(miniSelector(action));
+    await until(() => evaluate(`window.__copied.length===${copies + 1}`));
+    assert.equal(await evaluate('window.__requests.length'), requests);
+    assert.equal(await evaluate(`localStorage.getItem('bmMastery:state:v1')`), before);
+    assert.equal(await evaluate(`document.querySelector('${miniSelector(action)}').querySelectorAll('svg').length`), 1);
+    return evaluate('window.__copied.at(-1)');
+  };
+  assert.equal(await evaluate(`document.querySelectorAll('[data-copy-expansion-prompt]').length`), 7);
+  const generalPrompts = new Map();
+  for (const action of actionActivities.expansion) {
+    const grouping = await evaluate(`(() => {const el=document.querySelector('${miniSelector(action)}'),pair=el.closest('.expansion-ai-pair');return {name:el.getAttribute('aria-label'),title:el.title,buttons:pair.querySelectorAll('button').length,ai:!!pair.querySelector('${action === 'keyword_meaning' ? '[data-keyword-meaning]' : `[data-ai="${action}"]`}')};})()`);
+    assert.equal(grouping.name, 'Salin Prompt'); assert.equal(grouping.buttons, 2); assert.ok(grouping.ai);
+    assert.equal(grouping.title, 'Salin Prompt untuk digunakan dalam ChatGPT atau Gemini');
+    const prompt = await copyMini(action);
+    assert.ok(prompt.includes('Jangan pulangkan JSON')); assert.ok(!/Pulangkan JSON sahaja|situationRelevant|sameMeaning|"examples"|```/.test(prompt));
+    assert.match(prompt, /PANDUAN CONTOH TAHUN 4/); assert.match(prompt, /Kata kunci \(sendiri\):\n│ membantu/);
+    if (action !== 'sentence_expand_details') { assert.ok(!prompt.includes('MATLAMAT BUTIRAN')); generalPrompts.set(action, prompt); }
+  }
+  for (const detail of expansionDetails) await click(`[data-detail="${detail.id}"]`);
+  for (const action of generalPrompts.keys()) assert.equal(await copyMini(action), generalPrompts.get(action));
+  const noCopy = await evaluate('window.__copied.length'), noRequest = await evaluate('window.__requests.length');
+  await click(miniSelector('sentence_expand_details'));
+  assert.equal(await evaluate('window.__copied.length'), noCopy); assert.equal(await evaluate('window.__requests.length'), noRequest);
+  assert.equal(await evaluate(`document.querySelector('#detail-ai-status').textContent`), 'Pilih sekurang-kurangnya satu butiran dahulu.');
+  for (const id of ['masa', 'tempat', 'sebab', 'kata_hubung']) await click(`[data-detail="${id}"]`);
+  const fourDetailPrompt = await copyMini('sentence_expand_details');
+  assert.match(fourDetailPrompt, /MATLAMAT BUTIRAN DIPILIH \(4\): tempat · masa · sebab · kata hubung/);
+  assert.match(fourDetailPrompt, /Beri tepat TIGA/);
+  for (const detail of expansionDetails) {
+    const selected = ['cara', 'perasaan', 'kata_adjektif'].includes(detail.id);
+    if (await evaluate(`document.querySelector('[data-detail="${detail.id}"]').checked`) !== selected) await click(`[data-detail="${detail.id}"]`);
+  }
+  const threeDetailPrompt = await copyMini('sentence_expand_details');
+  assert.match(threeDetailPrompt, /MATLAMAT BUTIRAN DIPILIH \(3\): cara · perasaan · kata adjektif/);
+  await writeFile(path.join(output, 'mini-copied-prompts.json'), JSON.stringify({
+    general: generalPrompts.get('sentence_expand'), details: fourDetailPrompt, meaning: generalPrompts.get('keyword_meaning'),
+  }, null, 2));
+  // Reading a live, unsaved editor must not persist it or replace the saved draft.
+  const savedBeforeLive = await evaluate(`localStorage.getItem('bmMastery:state:v1')`);
+  await evaluate(`document.querySelector('#student-text').value='Saya membantu ibu menyediakan roti yang sedap.'`);
+  assert.match(await copyMini('sentence_expand'), /Saya membantu ibu menyediakan roti yang sedap/);
+  assert.equal(await evaluate(`localStorage.getItem('bmMastery:state:v1')`), savedBeforeLive);
+  await evaluate(`document.querySelector('#student-text').value=''`);
+  const emptyCopies = await evaluate('window.__copied.length'); await click(miniSelector('sentence_check'));
+  assert.equal(await evaluate('window.__copied.length'), emptyCopies);
+  assert.match(await evaluate(`document.querySelector('${miniSelector('sentence_check')}').closest('.expansion-ai-pair').textContent`), /Tulis sesuatu dahulu/);
+  assert.match(await copyMini('sentence_hint'), /Ayat semasa belum diisi/);
+  await evaluate(`document.querySelector('#student-text').value=${JSON.stringify(richWriting)}`);
+  // Failure stays a small local tooltip and the same icon permits a retry.
+  await evaluate('window.__clipboardFail=true'); const failedCopies = await evaluate('window.__copied.length');
+  await click(miniSelector('sentence_hint'));
+  await until(() => evaluate(`document.querySelector('${miniSelector('sentence_hint')}').closest('.expansion-ai-pair').textContent.includes('Tidak dapat menyalin')`));
+  assert.equal(await evaluate('window.__copied.length'), failedCopies);
+  await evaluate('window.__clipboardFail=false'); await copyMini('sentence_hint');
+  // Keep copying available while its adjacent internal action is still loading.
+  await type('#student-text', 'Saya membantu ibu menyediakan roti untuk sarapan.');
+  await evaluate('window.__holdAI=true'); await click('[data-keyword-meaning]');
+  await until(() => evaluate('window.__releaseAI.length===1'));
+  assert.equal(await evaluate(`document.querySelector('${miniSelector('keyword_meaning')}').disabled`), false);
+  await copyMini('keyword_meaning');
+  assert.equal(await evaluate(`!!document.querySelector('#meaning-teacher-result .loading')`), true);
+  await evaluate('window.__holdAI=false;window.__releaseAI.splice(0).forEach(release=>release())');
+  await until(() => evaluate(`!!document.querySelector('#meaning-teacher-result [lang="zh-Hans"]')`));
+  await type('#student-text', richWriting);
+  await until(() => evaluate(`[...document.querySelectorAll('[data-prompt-copy-feedback]')].every(el=>!el.textContent)`));
+  for (const [name, width, height] of widths) {
+    await send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false});
+    for (const action of actionActivities.expansion) {
+      await evaluate(`document.querySelector('${miniSelector(action)}').scrollIntoView({block:'center'})`);
+      const layout = await evaluate(`(() => {const el=document.querySelector('${miniSelector(action)}'),pair=el.closest('.expansion-ai-pair'),ai=pair.querySelector('button'),r=el.getBoundingClientRect(),a=ai.getBoundingClientRect(),svg=el.querySelector('svg').getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,icon:svg.width,aiRight:a.right,aiTop:a.top,aiBottom:a.bottom,overflow:document.documentElement.scrollWidth>innerWidth};})()`);
+      assert.equal(layout.overflow,false,name); assert.ok(layout.left>=0 && layout.right<=width && layout.top>=0 && layout.bottom<=height,name);
+      assert.ok(layout.width>=44 && layout.height>=44 && layout.icon>=13 && layout.icon<=15,name);
+      assert.ok(layout.aiRight<=layout.left && Math.abs((layout.aiTop+layout.aiBottom)/2-(layout.top+layout.bottom)/2)<2,name);
+    }
+    const keyboardCopies = await evaluate('window.__copied.length');
+    await evaluate(`document.querySelector('${miniSelector('sentence_hint')}').focus()`);
+    await key('Tab','Tab',9); await key('Tab','Tab',9); // Exercise native focus traversal too.
+    await evaluate(`document.querySelector('${miniSelector('sentence_hint')}').focus()`);
+    assert.equal(await evaluate(`getComputedStyle(document.activeElement).outlineStyle`), 'solid');
+    await key('Enter','Enter',13); await until(() => evaluate(`window.__copied.length===${keyboardCopies+1}`));
+    const stableBounds = await evaluate(`document.querySelector('${miniSelector('sentence_hint')}').closest('.expansion-ai-pair').getBoundingClientRect().height`);
+    await copyMini('sentence_hint');
+    assert.equal(await evaluate(`document.querySelector('${miniSelector('sentence_hint')}').closest('.expansion-ai-pair').getBoundingClientRect().height`), stableBounds);
+    await evaluate('document.activeElement.blur()');
+    for (const [part, selector] of [['actions','.teacher-card'],['keyword','.keyword-focus'],['details','[data-ai="sentence_expand_details"]']]) {
+      await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`);
+      const capture=await captureScreenshot({format:'png',captureBeyondViewport:false}, `mini-copy-${name}-${part}`);
+      await writeFile(path.join(output,`mini-copy-${name}-${part}.png`),Buffer.from(capture.data,'base64'));
+    }
+    results.push({name:'mini-copy-'+name,width,height,status:'PASS'});
+  }
+  // Activated custom modes, year changes and restored drafts update the next copy.
+  await type('#custom-keyword','menyusun'); await evaluate(`document.querySelector('#custom-keyword-form').requestSubmit()`);
+  await click('input[data-situation-mode][value="custom"]');
+  await type('#custom-situation','Saya menyusun buku di perpustakaan sekolah.'); await evaluate(`document.querySelector('#custom-situation-form').requestSubmit()`);
+  await type('#student-text','Saya menyusun buku dengan cermat.');
+  const customPrompt = await copyMini('sentence_expand');
+  assert.match(customPrompt,/Kata kunci \(sendiri\):\n│ menyusun/); assert.match(customPrompt,/Saya menyusun buku di perpustakaan sekolah/);
+  await reloadPage('#custom-keyword');
+  assert.equal(await copyMini('sentence_expand'),customPrompt);
+  await select('#year-select','6'); await click('#accept-confirm');
+  assert.match(await copyMini('sentence_hint'),/PANDUAN CONTOH TAHUN 6/);
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, 'browser-results.json'), JSON.stringify({ browser: version.Browser, checks: results, errors, interactionChecks: 'PASS; AI and speech mocked; no physical devices/audio' }, null, 2));
-  console.log(`PASS: keyword/situation workflow, six general actions independent of checkboxes, dedicated detail action, richer fixtures, independent stale protection, removed checker, copy, meaning, offline, TTS, navigation, ${results.length} responsive checks. Screenshots: ${output}`);
+  console.log(`PASS: keyword/situation workflow, seven adjacent clipboard-only prompt icons, live context, independent AI modes, richer fixtures, stale protection, copy, meaning, offline, TTS, navigation, ${results.length} responsive checks. Screenshots: ${output}`);
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { await send('Browser.close').catch(() => {}); socket.close(); }
   if (child.exitCode === null) child.kill();
