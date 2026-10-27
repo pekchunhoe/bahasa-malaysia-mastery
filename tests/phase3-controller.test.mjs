@@ -10,9 +10,10 @@ import { speechUnits } from '../js/speech-text.js';
 import { PARAGRAPH_PAUSE_MS } from '../js/speech-service.js';
 import { representativeEssay, externalHeadings } from './fixtures/essay-prompts.mjs';
 import { vividFeedback } from './fixtures/essay-examples.mjs';
-import { meaningFeedback } from './fixtures/expansion-ai.mjs';
+import { expansionFeedback, meaningFeedback } from './fixtures/expansion-ai.mjs';
 import { reviewedExpansionCases, reviewedFeedback } from './fixtures/expansion-details.mjs';
 import { expansionDetails, detailSelectionStates } from '../js/expansion.js';
+import { detailFeedback } from './fixtures/expansion-separation.mjs';
 
 // Exercise the real app event handlers with a small DOM boundary double.
 // This is controller coverage, not browser/visual/audio validation.
@@ -92,6 +93,97 @@ function expansionContext(h) {
   h.type('Saya membantu ibu menyediakan sarapan.');
 }
 
+test('dedicated controller gives accessible empty-selection feedback without a request', async t => {
+  const h = await appHarness(t, { activity: 'expansion' }); expansionContext(h);
+  const before = h.storage.getItem(STORAGE_KEY);
+  h.click({ ai: 'sentence_expand_details' });
+  assert.equal(h.node('#detail-ai-status').textContent, 'Pilih sekurang-kurangnya satu butiran dahulu.');
+  assert.equal(h.requests.length, 0); assert.equal(h.storage.getItem(STORAGE_KEY), before);
+});
+
+test('dedicated controller sends all selections and copies three examples independently without changing writing', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = await appHarness(t, { activity: 'expansion', apiResponse: async () => Response.json({ ok: true, action: 'sentence_expand_details', data: detailFeedback }) });
+  expansionContext(h);
+  for (const detail of expansionDetails) h.root.onchange({ target: { dataset: { detail: detail.id }, checked: true } });
+  const before = h.storage.getItem(STORAGE_KEY);
+  h.click({ ai: 'sentence_expand_details' }); await new Promise(resolve => setImmediate(resolve));
+  const input = JSON.parse(h.requests.at(-1)[1].body);
+  assert.deepEqual(input.detailSelections, detailSelectionStates(expansionDetails.map(detail => detail.id)));
+  assert.equal(input.keyword, 'membantu'); assert.equal(input.situationId, 'S001'); assert.equal(input.year, 1);
+  assert.match(h.node('#expansion-detail-result').innerHTML, /Cadangan Ayat Mengikut Butiran/);
+  for (let i = 0; i < 3; i++) {
+    await h.node(`copy${i}`).onclick();
+    assert.equal(h.copied.at(-1), detailFeedback.examples[i].text);
+    assert.equal(h.node(`copy${i}`).textContent, 'Disalin ✓');
+  }
+  assert.equal(h.storage.getItem(STORAGE_KEY), before);
+  h.root.onchange({ target: { dataset: { detail: 'masa' }, checked: false } });
+  assert.equal(h.node('#expansion-detail-result').innerHTML, '');
+});
+
+test('all six general in-flight responses survive checkbox changes and completed output survives more changes', async t => {
+  let release, signal;
+  const h = await appHarness(t, { activity: 'expansion', apiResponse: (_, init) => {
+    signal = init.signal; const action = JSON.parse(init.body).action;
+    return new Promise(resolve => { release = () => resolve(Response.json({ ok: true, action, data: action === 'keyword_meaning' ? meaningFeedback : expansionFeedback })); });
+  } }); expansionContext(h);
+  for (const action of actionActivities.expansion.filter(action => action !== 'sentence_expand_details')) {
+    h.click(action === 'keyword_meaning' ? { keywordMeaning: '' } : { ai: action });
+    await new Promise(resolve => setImmediate(resolve));
+    const result = h.node(action === 'keyword_meaning' ? '#meaning-teacher-result' : '#teacher-result');
+    h.root.onchange({ target: { dataset: { detail: 'masa' }, checked: true } });
+    assert.equal(signal.aborted, false, action);
+    release(); await new Promise(resolve => setImmediate(resolve));
+    assert.match(result.innerHTML, /data-copy-example/, action);
+    const output = result.innerHTML;
+    h.root.onchange({ target: { dataset: { detail: 'masa' }, checked: false } });
+    assert.equal(result.innerHTML, output, action);
+    h.node('#modal').close();
+  }
+});
+
+test('dedicated pending output cancels on relevant edits and a late reply cannot replace a newer result', async t => {
+  let release, signal;
+  const h = await appHarness(t, { activity: 'expansion', apiResponse: (_, init) => {
+    signal = init.signal;
+    return new Promise(resolve => { release = () => resolve(Response.json({ ok: true, action: 'sentence_expand_details', data: detailFeedback })); });
+  } }); expansionContext(h);
+  h.root.onchange({ target: { dataset: { detail: 'tempat' }, checked: true } });
+  for (const edit of [
+    () => h.root.onchange({ target: { dataset: { detail: 'masa' }, checked: true } }),
+    () => { const original = h.node('#original-input'); original.value += ' '; h.root.oninput({ target: original }); },
+    () => { h.node('#student-text').value += ' '; h.type(h.node('#student-text').value); },
+    () => h.root.onchange({ target: { dataset: {}, id: 'situation-select', value: 'S002' } }),
+  ]) {
+    h.click({ ai: 'sentence_expand_details' }); await new Promise(resolve => setImmediate(resolve));
+    const pending = release; assert.equal(signal.aborted, false);
+    edit(); assert.equal(signal.aborted, true);
+    assert.equal(h.node('#expansion-detail-result').innerHTML, '');
+    h.node('#detail-teacher-result').innerHTML = 'CURRENT RESULT';
+    pending(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.node('#detail-teacher-result').innerHTML, 'CURRENT RESULT');
+  }
+});
+
+test('general and dedicated inline results coexist and only dedicated output clears on a checkbox edit', async t => {
+  const h = await appHarness(t, { activity: 'expansion', apiResponse: async (_, init) => {
+    const action = JSON.parse(init.body).action;
+    return Response.json({ ok: true, action, data: action === 'keyword_meaning' ? meaningFeedback : detailFeedback });
+  } }); expansionContext(h);
+  h.root.onchange({ target: { dataset: { detail: 'tempat' }, checked: true } });
+  h.click({ keywordMeaning: '' }); h.click({ ai: 'sentence_expand_details' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(h.node('#meaning-teacher-result').innerHTML, /Bahasa Melayu/);
+  assert.match(h.node('#detail-teacher-result').innerHTML, /data-copy-example/);
+  const general = h.node('#keyword-meaning-result').innerHTML;
+  h.root.onchange({ target: { dataset: { detail: 'masa' }, checked: true } });
+  assert.equal(h.node('#keyword-meaning-result').innerHTML, general);
+  assert.equal(h.node('#expansion-detail-result').innerHTML, '');
+  h.type('Saya membantu ibu menyediakan roti.');
+  assert.equal(h.node('#keyword-meaning-result').innerHTML, '');
+});
+
 test('expansion removes the non-AI checker and ignores an obsolete handler while retaining deterministic keyword validation', async t => {
   const h = await appHarness(t, { activity: 'expansion' });
   h.type('ali  membaca');
@@ -105,7 +197,7 @@ test('expansion removes the non-AI checker and ignores an obsolete handler while
   assert.equal(h.requests.length, 0);
 });
 
-test('real expansion controllers send all eight flags and the latest original to all six AI actions without changing writing', async t => {
+test('real controllers omit detail flags from all six general actions while sending the latest original', async t => {
   const record = reviewedExpansionCases.find(record => record.year === 4);
   const h = await appHarness(t, { year: 4, activity: 'expansion', apiResponse: async (_, init) => {
     const request = JSON.parse(init.body);
@@ -114,11 +206,11 @@ test('real expansion controllers send all eight flags and the latest original to
   expansionContext(h);
   for (const detail of expansionDetails) h.root.onchange({ target: { dataset: { detail: detail.id }, checked: true } });
   const id = h.state().activeDrafts['4:expansion'], before = structuredClone(h.state().drafts[id]);
-  for (const action of actionActivities.expansion) {
+  for (const action of actionActivities.expansion.filter(action => action !== 'sentence_expand_details')) {
     h.click(action === 'keyword_meaning' ? { keywordMeaning: '' } : { ai: action });
     await new Promise(resolve => setImmediate(resolve));
     const request = JSON.parse(h.requests.at(-1)[1].body);
-    assert.deepEqual(request.detailSelections, detailSelectionStates(expansionDetails.map(detail => detail.id)));
+    assert.equal(request.detailSelections, undefined); assert.equal(request.expansionOptions, undefined);
     assert.equal(request.year, 4); assert.equal(request.originalSentence, 'Saya membantu ibu.');
     assert.equal(request.studentText, before.text); assert.equal(request.keyword, 'membantu'); assert.equal(request.situationId, 'S001');
     h.node('#modal').close();
@@ -127,7 +219,7 @@ test('real expansion controllers send all eight flags and the latest original to
   assert.equal(h.requests.length, 6);
 });
 
-test('changing a detail cancels a pending meaning request immediately and suppresses its late response', async t => {
+test('changing only a detail preserves pending and completed general meaning responses', async t => {
   let release, signal;
   const h = await appHarness(t, { activity: 'expansion', apiResponse: (_, init) => {
     signal = init.signal;
@@ -137,9 +229,12 @@ test('changing a detail cancels a pending meaning request immediately and suppre
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(!signal.aborted);
   h.root.onchange({ target: { dataset: { detail: 'masa' }, checked: true } });
-  assert.ok(signal.aborted); assert.equal(h.node('#keyword-meaning-result').innerHTML, '');
-  h.node('#meaning-teacher-result').innerHTML = 'NEW CONTEXT'; release(); await new Promise(resolve => setImmediate(resolve));
-  assert.equal(h.node('#meaning-teacher-result').innerHTML, 'NEW CONTEXT');
+  assert.ok(!signal.aborted); assert.match(h.node('#keyword-meaning-result').innerHTML, /keyword-meaning-card/);
+  release(); await new Promise(resolve => setImmediate(resolve));
+  assert.match(h.node('#meaning-teacher-result').innerHTML, /Bahasa Melayu/);
+  const result = h.node('#keyword-meaning-result').innerHTML;
+  h.root.onchange({ target: { dataset: { detail: 'cara' }, checked: true } });
+  assert.equal(h.node('#keyword-meaning-result').innerHTML, result);
   assert.equal(h.state().drafts[h.state().activeDrafts['1:expansion']].text, 'Saya membantu ibu menyediakan sarapan.');
 });
 

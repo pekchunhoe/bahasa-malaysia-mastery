@@ -4,8 +4,12 @@ import { difficultyFor } from "../data/difficulty.js";
 import { paragraphLabels, combineEssay, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
 import { cleanKeyword, expansionDetails, detailSelectionStates, keywordError, keywordFeedback } from './expansion.js';
 import { situationRequest } from './expansion-situations.js';
-import { buildExpansionTutorPrompt, normalizeExpansionFeedback } from './expansion-tutor.js';
+import { buildExpansionTutorPrompt, normalizeExpansionFeedback, detailExpansionAction } from './expansion-tutor.js';
 export const tutorActions = Object.freeze({
+  [detailExpansionAction]: {
+    label: 'Cikgu AI · Kembangkan Ikut Butiran', mode: 'api', textRequired: false,
+    instruction: 'Cadangkan tiga contoh ayat yang dikembangkan mengikut butiran pilihan murid, tanpa menggantikan tulisan murid.',
+  },
   keyword_meaning: {
     label: 'Cikgu AI · Maksud Kata Kunci', mode: 'api', textRequired: false,
     instruction: 'Terangkan makna kata kunci dalam Bahasa Melayu, English dan Mandarin serta satu contoh ayat Melayu berdasarkan konteks.',
@@ -102,6 +106,7 @@ export const actionActivities = {
     "vocabulary_help",
   ],
   expansion: [
+    detailExpansionAction,
     "keyword_meaning",
     "sentence_hint",
     "sentence_check",
@@ -158,20 +163,26 @@ export function tutorRequest(raw) {
     ? text(raw.referenceText ?? "", 2000) : "";
   let expansionContext = {};
   if (raw.activity === 'expansion') {
-    if (!['builtin', 'custom'].includes(raw.keywordMode) || keywordError(raw.keyword) ||
-        !Array.isArray(raw.expansionOptions) || raw.expansionOptions.length > 8 ||
-        !raw.expansionOptions.every(id => expansionDetails.some(detail => detail.id === id)))
-      throw new TutorInputError('Pilih kata kunci dan butiran yang sah dahulu.');
+    if (!['builtin', 'custom'].includes(raw.keywordMode) || keywordError(raw.keyword))
+      throw new TutorInputError('Pilih kata kunci yang sah dahulu.');
     expansionContext = { keywordMode: raw.keywordMode, keyword: cleanKeyword(raw.keyword),
-      originalSentence: text(raw.originalSentence ?? '', 8000),
-      expansionOptions: [...new Set(raw.expansionOptions)], detailSelections: detailSelectionStates(raw.expansionOptions) };
-    // Older callers provide the selected IDs only. New callers send all eight
-    // states too; reject disagreement instead of silently changing pupil goals.
-    if (raw.detailSelections !== undefined && (!raw.detailSelections || Array.isArray(raw.detailSelections) ||
-        typeof raw.detailSelections !== 'object' || Object.keys(raw.detailSelections).length !== expansionDetails.length ||
-        !expansionDetails.every(detail => Object.hasOwn(raw.detailSelections, detail.id) &&
-          raw.detailSelections[detail.id] === expansionContext.detailSelections[detail.id])))
-      throw new TutorInputError('Pilihan butiran tidak sepadan. Pilih semula butiran kamu.');
+      originalSentence: text(raw.originalSentence ?? '', 8000) };
+    // Ignore accidental/legacy detail fields completely for general actions.
+    // Only the dedicated action can validate or transmit selection context.
+    if (raw.action === detailExpansionAction) {
+      if (!Array.isArray(raw.expansionOptions) || raw.expansionOptions.length > 8 ||
+          !raw.expansionOptions.every(id => expansionDetails.some(detail => detail.id === id)))
+        throw new TutorInputError('Pilih butiran yang sah dahulu.');
+      if (!raw.expansionOptions.length) throw new TutorInputError('Pilih sekurang-kurangnya satu butiran dahulu.');
+      Object.assign(expansionContext, { expansionOptions: [...new Set(raw.expansionOptions)],
+        detailSelections: detailSelectionStates(raw.expansionOptions) });
+      // Selected-ID-only callers remain supported; reject contradictory explicit maps.
+      if (raw.detailSelections !== undefined && (!raw.detailSelections || Array.isArray(raw.detailSelections) ||
+          typeof raw.detailSelections !== 'object' || Object.keys(raw.detailSelections).length !== expansionDetails.length ||
+          !expansionDetails.every(detail => Object.hasOwn(raw.detailSelections, detail.id) &&
+            raw.detailSelections[detail.id] === expansionContext.detailSelections[detail.id])))
+        throw new TutorInputError('Pilihan butiran tidak sepadan. Pilih semula butiran kamu.');
+    }
     try { Object.assign(expansionContext, situationRequest(raw)); }
     catch (error) { throw new TutorInputError(error.message); }
   }
@@ -427,6 +438,7 @@ function externalEssayOutputFormat(action) {
 }
 export function buildExternalTutorPrompt(raw) {
   const input = tutorRequest(raw);
+  if (input.activity === 'expansion') return buildExpansionTutorPrompt(input, tutorActions[input.action].instruction, { external: true });
   return input.activity === 'essay'
     ? buildEssayTutorInstructions(input) + '\n\n' + externalEssayOutputFormat(input.action)
     : buildTutorPrompt(input);

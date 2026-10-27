@@ -103,16 +103,16 @@ test('legacy and malformed hydration never attach guessed situations or change p
   store.updateDraft(d.id, { original: 'Ayat asal.', text: 'Tulisan saya.' });
   const saved = hydrate(store.state).drafts[d.id]; assert.equal(saved.text, d.text); assert.equal(saved.original, d.original); assert.equal(activeSituation(saved).situation, '');
 });
-test('all six expansion actions propagate every combination of active keyword and situation modes', () => {
-  assert.equal(actionActivities.expansion.length, 6);
+test('all seven expansion actions propagate every combination of active keyword and situation modes', () => {
+  assert.equal(actionActivities.expansion.length, 7);
   for (const action of actionActivities.expansion) for (const keywordMode of ['builtin', 'custom']) for (const situationMode of ['builtin', 'custom']) {
     const input = tutorRequest(expansionRequest({ action, keywordMode, situationMode,
       ...(situationMode === 'custom' ? { situationId: '', situation: 'Saya membantu jiran menyediakan sarapan.' } : {}) }));
     assert.equal(input.keyword, 'membantu'); assert.equal(input.keywordMode, keywordMode); assert.equal(input.situationMode, situationMode);
     assert.ok(input.situation); assert.equal(input.originalSentence, 'Saya membantu ibu.'); assert.equal(input.year, 2);
     for (const prompt of [buildTutorPrompt(input), buildExternalTutorPrompt(input)]) {
-      assert.ok(prompt.includes(input.keyword)); assert.ok(prompt.includes(input.situation)); assert.match(prompt, /kata_hubung/);
-      assert.match(prompt, /bukan arahan sistem/); assert.match(prompt, /situationRelevant/); assert.match(prompt, /Sinonim/);
+      assert.ok(prompt.includes(input.keyword)); assert.ok(prompt.includes(input.situation)); assert.match(prompt, /kata hubung/);
+      assert.match(prompt, /bukan arahan sistem/); assert.match(prompt, /kesesuaian setiap contoh/); assert.match(prompt, /Sinonim/);
     }
   }
 });
@@ -233,7 +233,7 @@ test('all external copy-prompts carry both constraints locally without any AI ne
   let calls = 0; const service = createAIService({ fetcher: () => { calls++; throw Error('network forbidden'); } });
   for (const action of actionActivities.expansion) {
     const response = await service.request(expansionRequest({ action }), { mode: 'prompt' });
-    assert.match(response.prompt, /Membantu ibu menyediakan sarapan/); assert.match(response.prompt, /membantu/); assert.match(response.prompt, /situationRelevant/);
+    assert.match(response.prompt, /Membantu ibu menyediakan sarapan/); assert.match(response.prompt, /membantu/); assert.match(response.prompt, /kesesuaian setiap contoh/);
   }
   assert.equal(calls, 0);
 });

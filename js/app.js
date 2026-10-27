@@ -28,21 +28,25 @@ import { cleanKeyword, containsKeyword, expansionKeyword, expansionVocabulary, k
 import { keywordOptions } from '../components/expansion-keyword.js';
 import { activeSituation, cleanSituation, situationError, situations } from './expansion-situations.js';
 import { situationOptions } from '../components/expansion-situation.js';
+import { detailExpansionAction } from './expansion-tutor.js';
 
-let expansionTeacherCleanup = () => {};
-function expansionTeacherIdentity() {
+const expansionTeachers = new Map();
+function expansionTeacherIdentity(mode = 'general') {
   const expansion = draft?.activity === 'expansion';
   const focus = expansion ? expansionKeyword(pack, draft) : null;
   return JSON.stringify({ draftId: draft?.id, year: store.state.year, activity: store.state.activity,
     keyword: focus ? { mode: focus.mode, keyword: focus.keyword } : null,
     situation: expansion ? activeSituation(draft) : null,
-    detailSelections: expansion ? detailSelectionStates(selectedExpansionDetails(draft)) : null,
+    ...(expansion && mode === 'detail'
+      ? { detailSelections: detailSelectionStates(selectedExpansionDetails(draft)) } : {}),
     originalSentence: expansion ? draft.original || draft.fields.originalDraft || '' : '',
     studentText: expansion ? draft.text : '' });
 }
-function clearExpansionTeacher() {
-  expansionTeacherCleanup();
-  expansionTeacherCleanup = () => {};
+function clearExpansionTeacher(mode) {
+  for (const key of mode ? [mode] : [...expansionTeachers.keys()]) {
+    expansionTeachers.get(key)?.();
+    expansionTeachers.delete(key);
+  }
 }
 
 const store = createStore(),
@@ -187,9 +191,10 @@ function updateExpansionChecks() {
   }
 }
 function write(changes) {
-  const before = draft.activity === 'expansion' ? expansionTeacherIdentity() : '';
+  const before = draft.activity === 'expansion'
+    ? new Map([...expansionTeachers.keys()].map(mode => [mode, expansionTeacherIdentity(mode)])) : new Map();
   draft = store.updateDraft(draft.id, changes);
-  if (before && before !== expansionTeacherIdentity()) clearExpansionTeacher();
+  for (const [mode, identity] of before) if (identity !== expansionTeacherIdentity(mode)) clearExpansionTeacher(mode);
   updateWritingUI();
 }
 function refreshWords() {
@@ -281,6 +286,11 @@ function syncEssayEditors() {
   return true;
 }
 function aiRequest(action, word, paragraphIndex, promptButton) {
+  if (action === detailExpansionAction && draft?.activity === 'expansion') {
+    const message = selectedExpansionDetails(draft).length ? '' : 'Pilih sekurang-kurangnya satu butiran dahulu.';
+    document.querySelector('#detail-ai-status').textContent = message;
+    if (message) return;
+  }
   if (!word && draft?.activity === 'expansion' && !expansionKeyword(pack, draft).keyword) {
     toast('Pilih atau aktifkan kata kunci dahulu.');
     return;
@@ -293,7 +303,7 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
   }
   const editorText = word ? "" : draft?.activity === 'essay' ? draft.text : currentEditorText();
   if (!word && draft && editorText !== draft.text)
-    draft = store.updateDraft(draft.id, { text: editorText });
+    write({ text: editorText });
   const latestText = word
     ? ""
     : draft?.activity === "story"
@@ -328,8 +338,10 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
         keywordMode: expansionKeyword(pack, draft).mode,
         keyword: expansionKeyword(pack, draft).keyword,
         originalSentence: draft.original || document.querySelector('#original-input')?.value || draft.fields.originalDraft || '',
-        expansionOptions: selectedExpansionDetails(draft),
-        detailSelections: detailSelectionStates(selectedExpansionDetails(draft)),
+        ...(action === detailExpansionAction ? {
+          expansionOptions: selectedExpansionDetails(draft),
+          detailSelections: detailSelectionStates(selectedExpansionDetails(draft)),
+        } : {}),
         ...activeSituation(draft),
       } : {}),
       ...(!word && draft?.activity === 'essay' && paragraphIndex
@@ -343,12 +355,14 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
     } catch (error) { toast(error.message); return; }
   }
   if (!word && draft?.activity === 'expansion') {
-    expansionTeacherCleanup();
-    const identity = expansionTeacherIdentity();
-    expansionTeacherCleanup = openTeacher({ service: ai, store, request,
-      isCurrent: () => expansionTeacherIdentity() === identity,
+    const mode = action === detailExpansionAction ? 'detail' : 'general';
+    clearExpansionTeacher(mode);
+    const identity = expansionTeacherIdentity(mode);
+    expansionTeachers.set(mode, openTeacher({ service: ai, store, request,
+      isCurrent: () => expansionTeacherIdentity(mode) === identity,
       ...(action === 'keyword_meaning' ? { mount: document.querySelector('#keyword-meaning-result'), triggerButton: document.querySelector('[data-keyword-meaning]') } : {}),
-    });
+      ...(action === detailExpansionAction ? { mount: document.querySelector('#expansion-detail-result'), triggerButton: document.querySelector(`[data-ai="${detailExpansionAction}"]`) } : {}),
+    }));
   } else openTeacher({ service: ai, store, request });
 }
 function preserveWritingVersion() {
@@ -517,6 +531,7 @@ function bind() {
       write({ plan: { ...draft.plan, [key]: target.checked ? 'yes' : '' } });
       const guidance = document.querySelector(`#guide-${key}`);
       if (guidance) guidance.hidden = !target.checked;
+      document.querySelector('#detail-ai-status').textContent = '';
     }
     if (target.id === "essay-title") {
       stopReading();
@@ -775,7 +790,7 @@ window.addEventListener("hashchange", () => {
   document.querySelector("#main").focus({ preventScroll: true });
 });
 window.addEventListener("pagehide", () => {
-  expansionTeacherCleanup();
+  clearExpansionTeacher();
   store.persist();
   stopReading();
 });

@@ -7,6 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { meaningFeedback, expansionFeedback } from '../tests/fixtures/expansion-ai.mjs';
 import { reviewedExpansionCases, reviewedFeedback } from '../tests/fixtures/expansion-details.mjs';
+import { detailFeedback } from '../tests/fixtures/expansion-separation.mjs';
 import { expansionDetails, detailSelectionStates } from '../js/expansion.js';
 const origin = process.argv[2] || process.env.BM_TEST_ORIGIN || 'http://localhost:4174';
 const executable = process.env.BM_TEST_BROWSER || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
@@ -76,13 +77,15 @@ try {
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
   socket.onmessage = receive;
   console.log('Browser attached:', version.Browser);
-  console.log('Page runtime:', await evaluate('location.href'));
   await send('Runtime.enable'); await send('Page.enable');
+  await send('Runtime.runIfWaitingForDebugger');
+  console.log('Page runtime:', await evaluate('location.href'));
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `
     window.__requests = []; window.__spoken = []; window.__pauses = 0; window.__resumes = 0;
     window.__copied = []; window.__releaseAI = [];
     const expansionFixture = ${JSON.stringify(expansionFeedback)};
     const meaningFixture = ${JSON.stringify(meaningFeedback)};
+    const detailFixture = ${JSON.stringify(detailFeedback)};
     const reviewedFixtures = ${JSON.stringify(reviewedExpansionCases.map(record => ({ ...record, feedback: reviewedFeedback(record) })))};
     Object.defineProperty(navigator, 'clipboard', {value:{writeText:async text=>{if(window.__clipboardFail)throw Error('clipboard denied');window.__copied.push(text);}}});
     document.execCommand = () => false;
@@ -103,6 +106,8 @@ try {
           if(record && input.action !== 'keyword_meaning') data=structuredClone(record.feedback);
           if(record && input.action === 'keyword_meaning') data={...meaningFixture,keyword:input.keyword,contoh_ayat:'Pada waktu pagi, saya membantu ibu menyediakan sarapan yang berkhasiat di dapur.'};
         }
+        if (input.action === 'sentence_expand_details') data=structuredClone(detailFixture);
+        if (window.__badDetails && input.action === 'sentence_expand_details') data.examples=[];
         if (window.__badMeaning && input.action === 'keyword_meaning') data.meaning_zh='';
         const response = window.__rateLimited ? Response.json({ok:false,error:{message:'Cikgu AI sibuk. Tunggu seminit sebelum mencuba lagi.'}},{status:429}) : Response.json({ok:true,action:input.action,data});
         if(window.__holdAI) return new Promise(resolve=>window.__releaseAI.push(()=>resolve(response)));
@@ -155,7 +160,7 @@ try {
     await until(() => evaluate(`document.querySelector('#teacher-result').textContent.includes('Cadangan pilihan')`));
     const input = await evaluate('window.__requests.at(-1)');
     assert.equal(input.keyword, 'kasih sayang'); assert.equal(input.keywordMode, 'custom');
-    assert.equal(input.originalSentence, 'Saya membantu emak.'); assert.ok(input.expansionOptions.includes('kata_hubung'));
+    assert.equal(input.originalSentence, 'Saya membantu emak.'); assert.equal(input.expansionOptions, undefined); assert.equal(input.detailSelections, undefined);
     await click('#teacher-prompt');
     await until(() => evaluate(`!!document.querySelector('#generated-prompt')`));
     assert.match(await evaluate(`document.querySelector('#generated-prompt').value`), /kasih sayang/);
@@ -236,7 +241,7 @@ try {
     await until(() => evaluate(`document.querySelectorAll('#teacher-result [data-copy-example]').length===3`));
     const input = await evaluate('window.__requests.at(-1)');
     assert.equal(input.keyword, 'membantu'); assert.equal(input.situationMode, 'custom'); assert.equal(input.situationId, '');
-    assert.equal(input.situation, customSituation); assert.ok(input.expansionOptions.includes('kata_hubung'));
+    assert.equal(input.situation, customSituation); assert.equal(input.expansionOptions, undefined); assert.equal(input.detailSelections, undefined);
     const beforeCopies = await evaluate('window.__copied.length');
     await evaluate(`document.querySelector('#teacher-result [data-copy-example="0"]').focus()`); await key('Enter', 'Enter', 13);
     await until(() => evaluate(`window.__copied.length===${beforeCopies + 1}`));
@@ -319,7 +324,7 @@ try {
   await select('#situation-select', 'S001');
   const richRecord = reviewedExpansionCases.find(record => record.year === 4);
   for (const detail of expansionDetails) {
-    if (await evaluate(`document.querySelector('[data-detail="${detail.id}"]').checked`) !== richRecord.selected.includes(detail.id)) await click(`[data-detail="${detail.id}"]`);
+    if (await evaluate(`document.querySelector('[data-detail="${detail.id}"]').checked`) !== true) await click(`[data-detail="${detail.id}"]`);
   }
   await type('#original-input', richRecord.original); await type('#student-text', 'Saya membantu ibu menyediakan sarapan.');
   await evaluate('window.__useReviewedExamples=true;window.__holdAI=true'); await click('[data-keyword-meaning]');
@@ -334,7 +339,7 @@ try {
     const scope = action === 'keyword_meaning' ? '#meaning-teacher-result' : '#teacher-result';
     await until(() => evaluate(`!!document.querySelector('${scope} [data-copy-example]')`));
     const input = await evaluate('window.__requests.at(-1)');
-    assert.equal(input.year, 4); assert.deepEqual(input.detailSelections, detailSelectionStates(richRecord.selected));
+    assert.equal(input.year, 4); assert.equal(input.detailSelections, undefined); assert.equal(input.expansionOptions, undefined);
     assert.equal(input.originalSentence, richRecord.original); assert.equal(input.studentText, richWriting);
     const expected = action === 'keyword_meaning' ? 'Pada waktu pagi, saya membantu ibu menyediakan sarapan yang berkhasiat di dapur.' : richRecord.after;
     assert.equal(await evaluate(`document.querySelector('${scope} .ai-example-text p').textContent`), expected);
@@ -343,24 +348,87 @@ try {
     if (action !== 'keyword_meaning') {
       await click('#teacher-prompt'); await until(() => evaluate(`!!document.querySelector('#generated-prompt')`));
       const prompt = await evaluate(`document.querySelector('#generated-prompt').value`);
-      assert.ok(prompt.includes('MATLAMAT BUTIRAN DIPILIH (6)')); assert.ok(prompt.includes('20–35'));
-      assert.ok(prompt.includes('Semak liputan butiran secara semantik')); await evaluate(`document.querySelector('#modal').close()`);
+      assert.ok(!prompt.includes('MATLAMAT BUTIRAN')); assert.ok(prompt.includes('PANDUAN CONTOH TAHUN 4'));
+      assert.ok(!prompt.includes('Semak liputan butiran secara semantik')); await evaluate(`document.querySelector('#modal').close()`);
     }
   }
+  const completedGeneral = await evaluate(`document.querySelector('#keyword-meaning-result').innerHTML`);
   await click('[data-detail="masa"]');
-  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').textContent`), '', 'completed output clears on detail change');
+  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').innerHTML`), completedGeneral);
+  // An edit makes a fresh general request; checkbox changes must not cancel it.
+  await type('#student-text', richWriting + ' Saya membantu ibu menyediakan roti.');
   await evaluate('window.__holdAI=true'); await click('[data-keyword-meaning]');
   await until(() => evaluate('window.__releaseAI.length===1'));
   await click('[data-detail="cara"]');
-  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').textContent`), '', 'pending output clears on detail change');
-  await evaluate('window.__holdAI=false'); await click('[data-keyword-meaning]');
+  assert.equal(await evaluate(`!!document.querySelector('#meaning-teacher-result .loading')`), true);
+  await evaluate('window.__holdAI=false;window.__releaseAI.splice(0).forEach(release=>release())');
   await until(() => evaluate(`!!document.querySelector('#meaning-teacher-result [lang="zh-Hans"]')`));
-  const currentMeaning = await evaluate(`document.querySelector('#keyword-meaning-result').innerHTML`);
-  await evaluate('window.__releaseAI.splice(0).forEach(release=>release())');
-  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').innerHTML`), currentMeaning);
-  assert.equal(await evaluate('window.__requests.at(-1).detailSelections.masa'), false);
-  assert.equal(await evaluate('window.__requests.at(-1).detailSelections.cara'), false);
+  assert.equal(await evaluate('window.__requests.at(-1).detailSelections'), undefined);
+  await type('#student-text', richWriting);
   await click('[data-detail="masa"]'); await click('[data-detail="cara"]');
+
+  // The new inline action alone receives all eight states and returns three cards.
+  assert.equal(await evaluate(`document.querySelector('[data-ai="sentence_expand_details"]').closest('.expansion-detail-section').querySelectorAll('[data-detail]').length`), 8);
+  await click('[data-ai="sentence_expand_details"]');
+  await until(() => evaluate(`document.querySelectorAll('#detail-teacher-result [data-copy-example]').length===3`));
+  const dedicated = await evaluate('window.__requests.at(-1)');
+  assert.deepEqual(dedicated.detailSelections, detailSelectionStates(expansionDetails.map(detail=>detail.id)));
+  assert.equal(dedicated.year, 4); assert.equal(dedicated.situationId, 'S001'); assert.equal(dedicated.keyword, 'membantu');
+  for (let i=0;i<3;i++) {
+    await evaluate(`document.querySelector('#detail-teacher-result [data-copy-example="${i}"]').focus()`);
+    await key('Enter','Enter',13);
+    assert.equal(await evaluate('window.__copied.at(-1)'), detailFeedback.examples[i].text);
+  }
+  assert.equal((await saved()).text, richWriting);
+  await click('#detail-teacher-prompt');
+  await until(() => evaluate(`!!document.querySelector('#detail-generated-prompt')`));
+  const detailPrompt = await evaluate(`document.querySelector('#detail-generated-prompt').value`);
+  assert.ok(detailPrompt.includes('MATLAMAT BUTIRAN DIPILIH (8)'));
+  assert.ok(!detailPrompt.includes('Pulangkan JSON')); assert.ok(detailPrompt.includes('Beri tepat TIGA'));
+  await click('#detail-teacher-run');
+  await until(() => evaluate(`document.querySelectorAll('#detail-teacher-result [data-copy-example]').length===3`));
+  await click('[data-keyword-meaning]');
+  await until(() => evaluate(`!!document.querySelector('#meaning-teacher-result [lang="zh-Hans"]')`));
+  const independentGeneral = await evaluate(`document.querySelector('#keyword-meaning-result').innerHTML`);
+  await click('[data-detail="masa"]');
+  assert.equal(await evaluate(`document.querySelector('#expansion-detail-result').textContent`), '');
+  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').innerHTML`), independentGeneral);
+  await evaluate('window.__holdAI=true'); await click('[data-ai="sentence_expand_details"]');
+  await until(() => evaluate('window.__releaseAI.length===1'));
+  await click('[data-detail="cara"]');
+  assert.equal(await evaluate(`document.querySelector('#expansion-detail-result').textContent`), '');
+  await evaluate('window.__holdAI=false'); await click('[data-ai="sentence_expand_details"]');
+  await until(() => evaluate(`document.querySelectorAll('#detail-teacher-result [data-copy-example]').length===3`));
+  const currentDetails = await evaluate(`document.querySelector('#expansion-detail-result').innerHTML`);
+  await evaluate('window.__releaseAI.splice(0).forEach(release=>release())');
+  assert.equal(await evaluate(`document.querySelector('#expansion-detail-result').innerHTML`), currentDetails);
+  for (const detail of expansionDetails) if(await evaluate(`document.querySelector('[data-detail="${detail.id}"]').checked`)) await click(`[data-detail="${detail.id}"]`);
+  const requestsBeforeEmpty = await evaluate('window.__requests.length');
+  await click('[data-ai="sentence_expand_details"]');
+  assert.equal(await evaluate('window.__requests.length'), requestsBeforeEmpty);
+  assert.match(await evaluate(`document.querySelector('#detail-ai-status').textContent`), /Pilih sekurang-kurangnya satu butiran dahulu/);
+  await click('[data-detail="tempat"]'); await evaluate('window.__badDetails=true');
+  await click('[data-ai="sentence_expand_details"]');
+  await until(() => evaluate(`!!document.querySelector('#detail-teacher-result [role="alert"]')`));
+  await evaluate('window.__badDetails=false;window.__rateLimited=true'); await click('#detail-teacher-run');
+  await until(() => evaluate(`document.querySelector('#detail-teacher-result').textContent.includes('Tunggu seminit')`));
+  assert.equal(await evaluate(`document.querySelector('[data-ai="sentence_expand_details"]').disabled`), false);
+  await evaluate('window.__rateLimited=false');
+  for (const detail of expansionDetails) if(!await evaluate(`document.querySelector('[data-detail="${detail.id}"]').checked`)) await click(`[data-detail="${detail.id}"]`);
+  await click('[data-ai="sentence_expand_details"]');
+  await until(() => evaluate(`document.querySelectorAll('#detail-teacher-result [data-copy-example]').length===3`));
+  for (const [name, width, height] of widths) {
+    await send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false});
+    for (let i=0;i<3;i++) {
+      await evaluate(`document.querySelector('#detail-teacher-result [data-copy-example="${i}"]').scrollIntoView({block:'center'})`);
+      const bounds=await evaluate(`(() => {const el=document.querySelector('#detail-teacher-result [data-copy-example="${i}"]'),r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height,overflow:document.documentElement.scrollWidth>innerWidth};})()`);
+      assert.ok(bounds.left>=0 && bounds.right<=width && bounds.height>=44 && bounds.top>=0 && bounds.bottom<=height, name);
+      assert.equal(bounds.overflow,false,name);
+    }
+    const capture=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+    await writeFile(path.join(output,`dedicated-${name}.png`),Buffer.from(capture.data,'base64'));
+    results.push({name:'dedicated-'+name,width,height,status:'PASS'});
+  }
   for (const [name, width, height] of widths) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
     await click('[data-ai="sentence_expand"]'); await until(() => evaluate(`!!document.querySelector('#teacher-result [data-copy-example]')`));
@@ -376,7 +444,7 @@ try {
   assert.equal((await saved()).text, richWriting);
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, 'browser-results.json'), JSON.stringify({ browser: version.Browser, checks: results, errors, interactionChecks: 'PASS; AI and speech mocked; no physical devices/audio' }, null, 2));
-  console.log(`PASS: keyword/situation workflow, all detail states in six actions, richer fixtures, stale detail/original protection, removed checker, copy, meaning, offline, TTS, navigation, ${results.length} responsive checks. Screenshots: ${output}`);
+  console.log(`PASS: keyword/situation workflow, six general actions independent of checkboxes, dedicated detail action, richer fixtures, independent stale protection, removed checker, copy, meaning, offline, TTS, navigation, ${results.length} responsive checks. Screenshots: ${output}`);
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { await send('Browser.close').catch(() => {}); socket.close(); }
   if (child.exitCode === null) child.kill();

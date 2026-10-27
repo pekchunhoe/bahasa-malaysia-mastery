@@ -4,6 +4,7 @@ import { hasMeaningfulStudentText, tutorActions } from "../js/tutor-actions.js";
 import { copyWithConfirmation } from './clipboard.js';
 import { exampleCards, attachExampleCopyButtons } from './ai-examples.js';
 import { renderExpansionFeedback } from './expansion-ai.js';
+import { detailExpansionAction } from '../js/expansion-tutor.js';
 
 function essayHint(feedback, hasDraft, request) {
   const examples = exampleCards(feedback.examples.map(text => ({ type: 'sentence', text })), request);
@@ -18,8 +19,12 @@ function paragraphHint(feedback, request) {
 
 export function openTeacher({ service, request, store, mount, isCurrent = () => true, triggerButton }) {
   const controller = new AbortController();
-  const prefix = mount ? 'meaning-' : '';
+  let loading = false;
+  const detailAware = request.action === detailExpansionAction;
+  const prefix = mount ? detailAware ? 'detail-' : 'meaning-' : '';
   const resultId = `${prefix}teacher-result`, runId = `${prefix}teacher-run`, promptId = `${prefix}teacher-prompt`;
+  const generatedPromptId = detailAware ? 'detail-generated-prompt' : 'generated-prompt';
+  const copyPromptId = detailAware ? 'detail-copy-prompt' : 'copy-prompt';
   const cancel = () => {
     if (controller.signal.aborted) return;
     controller.abort();
@@ -31,7 +36,7 @@ export function openTeacher({ service, request, store, mount, isCurrent = () => 
   const content = `<p class="muted">Tahun ${request.year} &middot; ${e(request.title || 'Bank Kata & Frasa')}</p>${context}<details class="student-reference"${mount ? '' : ' open'}><summary>${request.paragraphIndex ? `Perenggan ${request.paragraphIndex} &middot; Tulisan kamu` : 'Tulisan / perkataan kamu'}</summary><p class="preserve">${e(request.studentText || 'Belum ada tulisan.')}</p></details>${request.previousParagraphs?.length ? `<details class="student-reference"><summary>Perenggan terdahulu</summary>${request.previousParagraphs.map((text, i) => `<h4>Perenggan ${i + 1}</h4><p class="preserve">${e(text || 'Belum ada tulisan.')}</p>`).join('')}</details>` : ''}<div id="${resultId}" aria-live="polite"></div><div class="actions"><button type="button" class="button primary" id="${runId}">${mount ? 'Cuba lagi' : e(tutorActions[request.action].label)}</button><button type="button" class="button" id="${promptId}">Jana prompt</button></div><p class="small muted">Prompt dijana pada peranti ini. Tiada panggilan AI dibuat apabila kamu memilih Jana prompt.</p>`;
   let modal;
   if (mount) {
-    mount.innerHTML = `<details class="enrichment keyword-meaning-card" open><summary>Maksud Kata Kunci: ${e(request.keyword)}</summary>${content}</details>`;
+    mount.innerHTML = `<details class="enrichment keyword-meaning-card${detailAware ? ' expansion-detail-card' : ''}" open><summary>${detailAware ? 'Cadangan Ayat Mengikut Butiran' : `Maksud Kata Kunci: ${e(request.keyword)}`}</summary>${content}</details>`;
     modal = mount;
   } else modal = showModal('Cikgu AI', content, cancel);
   const cleanup = () => {
@@ -43,7 +48,8 @@ export function openTeacher({ service, request, store, mount, isCurrent = () => 
   const current = () => !controller.signal.aborted && isCurrent();
   const result = modal.querySelector(`#${resultId}`), run = modal.querySelector(`#${runId}`), promptButton = modal.querySelector(`#${promptId}`);
   const execute = async (mode) => {
-    if (store.runtime.ai === "loading") return;
+    if (loading) return;
+    loading = true;
     store.runtime.ai = "loading";
     run.disabled = promptButton.disabled = true;
     if (triggerButton) triggerButton.disabled = true;
@@ -56,8 +62,8 @@ export function openTeacher({ service, request, store, mount, isCurrent = () => 
       if (controller.signal.aborted) return;
       if (!isCurrent()) { cleanup(); return; }
       if (response.mode === "prompt") {
-        result.innerHTML = `<div class="notice">Prompt siap. Salin dan gunakan dengan pembimbing AI pilihan bersama guru atau penjaga. Semak cadangan sebelum membaiki tulisan sendiri.</div><label class="field">Prompt bimbingan<textarea id="generated-prompt" rows="10" readonly>${e(response.prompt)}</textarea></label><button class="button primary" id="copy-prompt">Salin prompt</button>`;
-        result.querySelector("#copy-prompt").onclick = async () => {
+        result.innerHTML = `<div class="notice">Prompt siap. Salin dan gunakan dengan pembimbing AI pilihan bersama guru atau penjaga. Semak cadangan sebelum membaiki tulisan sendiri.</div><label class="field">Prompt bimbingan<textarea id="${generatedPromptId}" rows="10" readonly>${e(response.prompt)}</textarea></label><button class="button primary" id="${copyPromptId}">Salin prompt</button>`;
+        result.querySelector(`#${copyPromptId}`).onclick = async () => {
           try {
             await navigator.clipboard.writeText(response.prompt);
             toast("Prompt disalin.");
@@ -94,6 +100,7 @@ export function openTeacher({ service, request, store, mount, isCurrent = () => 
         store.runtime.ai = "error";
       }
     } finally {
+      loading = false;
       if (current()) {
         run.disabled = promptButton.disabled = false;
         if (triggerButton) triggerButton.disabled = false;

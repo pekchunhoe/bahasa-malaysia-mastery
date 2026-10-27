@@ -2010,6 +2010,8 @@ blockquote {
 .expansion-situation textarea { min-height: 100px; }
 .situation-focus { border-left: 3px solid var(--color-primary); background: var(--color-primary-subtle); padding: 12px 14px; border-radius: 7px; overflow-wrap: anywhere; }
 .keyword-meaning-card { margin-bottom: 0; }
+.expansion-detail-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--color-border); }
+.expansion-detail-card { margin-top: 12px; }
 .keyword-meaning-output, .meaning-languages, .meaning-languages > div { min-width: 0; }
 .meaning-languages { display: grid; gap: 12px; margin: 16px 0; }
 .meaning-languages > div { border: 1px solid var(--color-border); border-radius: 8px; padding: 12px; background: var(--color-surface); }
@@ -2022,6 +2024,8 @@ blockquote {
   .keyword-focus .button { width: 100%; }
   .expansion-ai-feedback .ai-example-sentence, .keyword-meaning-output .ai-example-sentence { flex-direction: row; align-items: flex-start; gap: 10px; }
   .expansion-ai-feedback .ai-example-sentence .small-button, .keyword-meaning-output .ai-example-sentence .small-button { width: auto; min-width: 60px; }
+  .expansion-detail-card .ai-example-sentence { flex-direction: column; align-items: stretch; }
+  .expansion-detail-card .ai-example-sentence .small-button { align-self: flex-end; }
 }
 @media (max-width: 1200px) {
   .expansion-workspace { grid-template-columns: minmax(0, 1fr); }

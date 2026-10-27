@@ -44,11 +44,11 @@ const mockEnv = {
 };
 const okResponse = (action) =>
   Response.json({ ok: true, action, data: feedback });
-test("all fourteen tutor actions route through a single configuration", () => {
-  assert.equal(Object.keys(tutorActions).length, 14);
+test("all fifteen tutor actions route through a single configuration", () => {
+  assert.equal(Object.keys(tutorActions).length, 15);
   for (const [activity, actions] of Object.entries(actionActivities))
     for (const action of actions) {
-      const result = tutorRequest(input({ action, activity, ...(activity === 'expansion' ? { keywordMode: 'builtin', keyword: 'bermain', originalSentence: 'Ali bermain bola.', expansionOptions: [] } : {}), ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}) }));
+      const result = tutorRequest(input({ action, activity, ...(activity === 'expansion' ? { keywordMode: 'builtin', keyword: 'bermain', originalSentence: 'Ali bermain bola.', expansionOptions: ['tempat'] } : {}), ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}) }));
       assert.equal(result.action, action);
       assert.equal(
         executionMode(action),

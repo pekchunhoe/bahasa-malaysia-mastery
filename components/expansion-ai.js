@@ -1,5 +1,6 @@
 import { e, list } from './ui.js';
 import { exampleCards } from './ai-examples.js';
+import { detailExpansionAction } from '../js/expansion-tutor.js';
 
 export function renderExpansionFeedback(feedback, request) {
   if (feedback.kind === 'keyword_meaning') {
@@ -10,7 +11,7 @@ export function renderExpansionFeedback(feedback, request) {
       <div class="ai-example-list">${exampleCards([{ type: 'sentence', text: feedback.contoh_ayat }], request)}</div></section>`;
   }
   const examples = feedback.examples.map(example => ({ type: 'sentence', text: example.text }));
-  return `<section class="ai-hint-result expansion-ai-feedback"><h3>Petunjuk untuk kamu</h3><p class="guidance-summary">${e(feedback.summary)}</p>
+  return `<section class="ai-hint-result expansion-ai-feedback"><h3>${request.action === detailExpansionAction ? 'Cadangan Ayat Mengikut Butiran' : 'Petunjuk untuk kamu'}</h3><p class="guidance-summary">${e(feedback.summary)}</p>
     ${feedback.errors.length ? `<h4>Perkara yang perlu diperhatikan</h4>${list(feedback.errors)}` : ''}
     ${feedback.suggestions.length ? `<h4>Cadangan untuk kamu</h4>${list(feedback.suggestions)}` : ''}
     ${feedback.explanation ? `<p>${e(feedback.explanation)}</p>` : ''}
