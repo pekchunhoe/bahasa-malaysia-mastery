@@ -24,16 +24,25 @@ import { createDeploymentUpdateNotice } from '../components/deployment-update.js
 import { essayTopicById, writingTopicsFor } from "./essay-service.js";
 import { topicResults, revisionHistory } from "../components/essay-catalog.js";
 import { essayParagraphs, combineEssay, buildEssayParagraphContext, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
-import { cleanKeyword, containsKeyword, expansionKeyword, expansionVocabulary, keywordError, keywordFeedback, selectedExpansionDetails } from './expansion.js';
+import { cleanKeyword, containsKeyword, expansionKeyword, expansionVocabulary, keywordError, keywordFeedback, selectedExpansionDetails, detailSelectionStates } from './expansion.js';
 import { keywordOptions } from '../components/expansion-keyword.js';
 import { activeSituation, cleanSituation, situationError, situations } from './expansion-situations.js';
 import { situationOptions } from '../components/expansion-situation.js';
 
 let expansionTeacherCleanup = () => {};
 function expansionTeacherIdentity() {
+  const expansion = draft?.activity === 'expansion';
+  const focus = expansion ? expansionKeyword(pack, draft) : null;
   return JSON.stringify({ draftId: draft?.id, year: store.state.year, activity: store.state.activity,
-    keyword: draft?.activity === 'expansion' ? expansionKeyword(pack, draft) : null,
-    situation: draft?.activity === 'expansion' ? activeSituation(draft) : null });
+    keyword: focus ? { mode: focus.mode, keyword: focus.keyword } : null,
+    situation: expansion ? activeSituation(draft) : null,
+    detailSelections: expansion ? detailSelectionStates(selectedExpansionDetails(draft)) : null,
+    originalSentence: expansion ? draft.original || draft.fields.originalDraft || '' : '',
+    studentText: expansion ? draft.text : '' });
+}
+function clearExpansionTeacher() {
+  expansionTeacherCleanup();
+  expansionTeacherCleanup = () => {};
 }
 
 const store = createStore(),
@@ -110,8 +119,7 @@ function prepare() {
   }
 }
 function render() {
-  expansionTeacherCleanup();
-  expansionTeacherCleanup = () => {};
+  clearExpansionTeacher();
   // A full render replaces speech targets; never leave a detached reading active.
   stopReading();
   prepare();
@@ -179,7 +187,9 @@ function updateExpansionChecks() {
   }
 }
 function write(changes) {
+  const before = draft.activity === 'expansion' ? expansionTeacherIdentity() : '';
   draft = store.updateDraft(draft.id, changes);
+  if (before && before !== expansionTeacherIdentity()) clearExpansionTeacher();
   updateWritingUI();
 }
 function refreshWords() {
@@ -276,6 +286,11 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
     return;
   }
   if (!word && draft?.activity === 'essay' && !syncEssayEditors()) return;
+  if (!word && draft?.activity === 'expansion' && !draft.original) {
+    const original = document.querySelector('#original-input')?.value;
+    if (typeof original === 'string' && original !== (draft.fields.originalDraft || ''))
+      write({ fields: { ...draft.fields, originalDraft: original } });
+  }
   const editorText = word ? "" : draft?.activity === 'essay' ? draft.text : currentEditorText();
   if (!word && draft && editorText !== draft.text)
     draft = store.updateDraft(draft.id, { text: editorText });
@@ -314,6 +329,7 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
         keyword: expansionKeyword(pack, draft).keyword,
         originalSentence: draft.original || document.querySelector('#original-input')?.value || draft.fields.originalDraft || '',
         expansionOptions: selectedExpansionDetails(draft),
+        detailSelections: detailSelectionStates(selectedExpansionDetails(draft)),
         ...activeSituation(draft),
       } : {}),
       ...(!word && draft?.activity === 'essay' && paragraphIndex
@@ -579,9 +595,8 @@ function bind() {
       if (store.snapshotDraft(draft.id)) render();
       else toast('Tulis dahulu. Maksimum 20 versi; muat turun draf jika ruang versi sudah penuh.');
     }
-    if ("localCheck" in d) {
+    if ("localCheck" in d && draft?.activity !== 'expansion') {
       const { messages } = checkWritingBasics(draft.text);
-      if (draft.activity === 'expansion') messages.push(keywordFeedback(draft.text, expansionKeyword(pack, draft).keyword));
       document.querySelector("#local-feedback").innerHTML = messages.length
         ? `<ul>${messages.map(message => `<li>${e(message)}</li>`).join("")}</ul>`
         : "Tiada isu dikesan oleh semakan asas ini. Makna dan tatabahasa belum dinilai.";

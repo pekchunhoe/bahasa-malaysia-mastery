@@ -6,6 +6,8 @@ import { access, mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promise
 import path from 'node:path';
 import os from 'node:os';
 import { meaningFeedback, expansionFeedback } from '../tests/fixtures/expansion-ai.mjs';
+import { reviewedExpansionCases, reviewedFeedback } from '../tests/fixtures/expansion-details.mjs';
+import { expansionDetails, detailSelectionStates } from '../js/expansion.js';
 const origin = process.argv[2] || process.env.BM_TEST_ORIGIN || 'http://localhost:4174';
 const executable = process.env.BM_TEST_BROWSER || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 await access(executable);
@@ -81,6 +83,7 @@ try {
     window.__copied = []; window.__releaseAI = [];
     const expansionFixture = ${JSON.stringify(expansionFeedback)};
     const meaningFixture = ${JSON.stringify(meaningFeedback)};
+    const reviewedFixtures = ${JSON.stringify(reviewedExpansionCases.map(record => ({ ...record, feedback: reviewedFeedback(record) })))};
     Object.defineProperty(navigator, 'clipboard', {value:{writeText:async text=>{if(window.__clipboardFail)throw Error('clipboard denied');window.__copied.push(text);}}});
     document.execCommand = () => false;
     const fetchOriginal = window.fetch;
@@ -94,6 +97,11 @@ try {
           const text = 'Saya membantu ibu membersihkan rumah bersama keluarga.';
           if(input.action === 'keyword_meaning') data.contoh_ayat=text;
           else data.examples=[{text,situationRelevant:true,reason:'Keluarga bekerjasama membersihkan rumah.'}];
+        }
+        if (window.__useReviewedExamples) {
+          const record = reviewedFixtures.find(record=>record.year===input.year && record.keyword===input.keyword && record.situationId===input.situationId);
+          if(record && input.action !== 'keyword_meaning') data=structuredClone(record.feedback);
+          if(record && input.action === 'keyword_meaning') data={...meaningFixture,keyword:input.keyword,contoh_ayat:'Pada waktu pagi, saya membantu ibu menyediakan sarapan yang berkhasiat di dapur.'};
         }
         if (window.__badMeaning && input.action === 'keyword_meaning') data.meaning_zh='';
         const response = window.__rateLimited ? Response.json({ok:false,error:{message:'Cikgu AI sibuk. Tunggu seminit sebelum mencuba lagi.'}},{status:429}) : Response.json({ok:true,action:input.action,data});
@@ -109,6 +117,7 @@ try {
   await send('Page.navigate', { url: `${origin}/#expansion` });
   await until(() => evaluate(`!!document.querySelector('#expansion-keyword-select')`));
   assert.equal(await evaluate(`document.querySelectorAll('[data-detail]').length`), 8);
+  assert.equal(await evaluate(`document.querySelectorAll('[data-local-check],#local-feedback').length`), 0);
   assert.equal((await saved()).itemId, 'Y1-E-U01-I01');
   await type('#keyword-search', 'emak');
   assert.ok(await evaluate(`document.querySelectorAll('#expansion-keyword-select option').length < 10`));
@@ -192,6 +201,7 @@ try {
   assert.equal((await saved()).text, 'Emak menunjukkan kasih sayang kepada kami.');
   await click('a[href="#sentence"]'); await until(() => evaluate(`!!document.querySelector('[data-use-preview]')`));
   assert.equal(await evaluate(`!!document.querySelector('.expansion-keyword')`), false);
+  assert.equal(await evaluate(`!!document.querySelector('[data-local-check]')`), true, 'other activities retain their writing check');
   await click('a[href="#expansion"]'); await until(() => evaluate(`!!document.querySelector('.expansion-keyword')`));
   assert.equal((await saved()).text, 'Emak menunjukkan kasih sayang kepada kami.');
   // Situation workflow extends (and does not replace) the original browser checks.
@@ -300,9 +310,73 @@ try {
   await evaluate(`document.querySelector('#meaning-teacher-result').scrollIntoView({block:'start'})`);
   const meaningScreenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   await writeFile(path.join(output, 'situation-phone-meaning-visible.png'), Buffer.from(meaningScreenshot.data, 'base64'));
+  // Detail-aware checks use reviewed fixtures without replacing earlier coverage.
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await select('#year-select', '4'); await click('#accept-confirm');
+  await until(() => evaluate(`document.querySelector('#year-select').value==='4'`));
+  await click('input[data-keyword-mode][value="custom"]'); await type('#custom-keyword', 'membantu');
+  await evaluate(`document.querySelector('#custom-keyword-form').requestSubmit()`);
+  await select('#situation-select', 'S001');
+  const richRecord = reviewedExpansionCases.find(record => record.year === 4);
+  for (const detail of expansionDetails) {
+    if (await evaluate(`document.querySelector('[data-detail="${detail.id}"]').checked`) !== richRecord.selected.includes(detail.id)) await click(`[data-detail="${detail.id}"]`);
+  }
+  await type('#original-input', richRecord.original); await type('#student-text', 'Saya membantu ibu menyediakan sarapan.');
+  await evaluate('window.__useReviewedExamples=true;window.__holdAI=true'); await click('[data-keyword-meaning]');
+  await until(() => evaluate('window.__releaseAI.length===1'));
+  await type('#original-input', 'Saya membantu ibu menyediakan sarapan.');
+  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').textContent`), '', 'original edit immediately invalidates pending output');
+  await evaluate('window.__holdAI=false;window.__releaseAI.splice(0).forEach(release=>release())');
+  await type('#original-input', richRecord.original); await click('[data-lock-original]');
+  const richWriting = (await saved()).text;
+  for (const action of ['sentence_hint', 'sentence_check', 'sentence_expand', 'sentence_vivid', 'vocabulary_help', 'keyword_meaning']) {
+    await click(action === 'keyword_meaning' ? '[data-keyword-meaning]' : `[data-ai="${action}"]`);
+    const scope = action === 'keyword_meaning' ? '#meaning-teacher-result' : '#teacher-result';
+    await until(() => evaluate(`!!document.querySelector('${scope} [data-copy-example]')`));
+    const input = await evaluate('window.__requests.at(-1)');
+    assert.equal(input.year, 4); assert.deepEqual(input.detailSelections, detailSelectionStates(richRecord.selected));
+    assert.equal(input.originalSentence, richRecord.original); assert.equal(input.studentText, richWriting);
+    const expected = action === 'keyword_meaning' ? 'Pada waktu pagi, saya membantu ibu menyediakan sarapan yang berkhasiat di dapur.' : richRecord.after;
+    assert.equal(await evaluate(`document.querySelector('${scope} .ai-example-text p').textContent`), expected);
+    await click(`${scope} [data-copy-example]`); assert.equal(await evaluate('window.__copied.at(-1)'), expected);
+    assert.equal((await saved()).text, richWriting);
+    if (action !== 'keyword_meaning') {
+      await click('#teacher-prompt'); await until(() => evaluate(`!!document.querySelector('#generated-prompt')`));
+      const prompt = await evaluate(`document.querySelector('#generated-prompt').value`);
+      assert.ok(prompt.includes('MATLAMAT BUTIRAN DIPILIH (6)')); assert.ok(prompt.includes('20–35'));
+      assert.ok(prompt.includes('Semak liputan butiran secara semantik')); await evaluate(`document.querySelector('#modal').close()`);
+    }
+  }
+  await click('[data-detail="masa"]');
+  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').textContent`), '', 'completed output clears on detail change');
+  await evaluate('window.__holdAI=true'); await click('[data-keyword-meaning]');
+  await until(() => evaluate('window.__releaseAI.length===1'));
+  await click('[data-detail="cara"]');
+  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').textContent`), '', 'pending output clears on detail change');
+  await evaluate('window.__holdAI=false'); await click('[data-keyword-meaning]');
+  await until(() => evaluate(`!!document.querySelector('#meaning-teacher-result [lang="zh-Hans"]')`));
+  const currentMeaning = await evaluate(`document.querySelector('#keyword-meaning-result').innerHTML`);
+  await evaluate('window.__releaseAI.splice(0).forEach(release=>release())');
+  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').innerHTML`), currentMeaning);
+  assert.equal(await evaluate('window.__requests.at(-1).detailSelections.masa'), false);
+  assert.equal(await evaluate('window.__requests.at(-1).detailSelections.cara'), false);
+  await click('[data-detail="masa"]'); await click('[data-detail="cara"]');
+  for (const [name, width, height] of widths) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    await click('[data-ai="sentence_expand"]'); await until(() => evaluate(`!!document.querySelector('#teacher-result [data-copy-example]')`));
+    await evaluate(`document.querySelector('#teacher-result [data-copy-example]').scrollIntoView({block:'center'})`);
+    const bounds = await evaluate(`(() => {const el=document.querySelector('#teacher-result [data-copy-example]'),r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height,pageOverflow:document.documentElement.scrollWidth>innerWidth};})()`);
+    assert.ok(bounds.left >= 0 && bounds.right <= width && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= height); assert.equal(bounds.pageOverflow, false);
+    const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    await writeFile(path.join(output, `detail-rich-${name}.png`), Buffer.from(capture.data, 'base64'));
+    await evaluate(`document.querySelector('#modal').close()`);
+    assert.equal(await evaluate(`document.querySelectorAll('[data-local-check],#local-feedback').length`), 0);
+    results.push({ name: 'detail-rich-' + name, width, height, status: 'PASS' });
+  }
+  assert.equal((await saved()).text, richWriting);
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, 'browser-results.json'), JSON.stringify({ browser: version.Browser, checks: results, errors, interactionChecks: 'PASS; AI and speech mocked; no physical devices/audio' }, null, 2));
-  console.log(`PASS: keyword/situation workflow, offline catalogue, keyboard, reload, six AI actions, individual copy, trilingual meaning, stale/malformed/rate-limit handling, TTS, navigation, ${results.length} responsive mode/viewport checks. Screenshots: ${output}`);
+  console.log(`PASS: keyword/situation workflow, all detail states in six actions, richer fixtures, stale detail/original protection, removed checker, copy, meaning, offline, TTS, navigation, ${results.length} responsive checks. Screenshots: ${output}`);
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { await send('Browser.close').catch(() => {}); socket.close(); }
   if (child.exitCode === null) child.kill();

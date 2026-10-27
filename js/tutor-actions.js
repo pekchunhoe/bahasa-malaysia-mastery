@@ -2,7 +2,7 @@
 import { validYear } from "../data/schema/models.js";
 import { difficultyFor } from "../data/difficulty.js";
 import { paragraphLabels, combineEssay, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
-import { cleanKeyword, expansionDetails, keywordError, keywordFeedback } from './expansion.js';
+import { cleanKeyword, expansionDetails, detailSelectionStates, keywordError, keywordFeedback } from './expansion.js';
 import { situationRequest } from './expansion-situations.js';
 import { buildExpansionTutorPrompt, normalizeExpansionFeedback } from './expansion-tutor.js';
 export const tutorActions = Object.freeze({
@@ -164,7 +164,14 @@ export function tutorRequest(raw) {
       throw new TutorInputError('Pilih kata kunci dan butiran yang sah dahulu.');
     expansionContext = { keywordMode: raw.keywordMode, keyword: cleanKeyword(raw.keyword),
       originalSentence: text(raw.originalSentence ?? '', 8000),
-      expansionOptions: [...new Set(raw.expansionOptions)] };
+      expansionOptions: [...new Set(raw.expansionOptions)], detailSelections: detailSelectionStates(raw.expansionOptions) };
+    // Older callers provide the selected IDs only. New callers send all eight
+    // states too; reject disagreement instead of silently changing pupil goals.
+    if (raw.detailSelections !== undefined && (!raw.detailSelections || Array.isArray(raw.detailSelections) ||
+        typeof raw.detailSelections !== 'object' || Object.keys(raw.detailSelections).length !== expansionDetails.length ||
+        !expansionDetails.every(detail => Object.hasOwn(raw.detailSelections, detail.id) &&
+          raw.detailSelections[detail.id] === expansionContext.detailSelections[detail.id])))
+      throw new TutorInputError('Pilihan butiran tidak sepadan. Pilih semula butiran kamu.');
     try { Object.assign(expansionContext, situationRequest(raw)); }
     catch (error) { throw new TutorInputError(error.message); }
   }

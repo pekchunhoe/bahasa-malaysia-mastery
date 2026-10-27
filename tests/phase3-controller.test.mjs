@@ -10,6 +10,9 @@ import { speechUnits } from '../js/speech-text.js';
 import { PARAGRAPH_PAUSE_MS } from '../js/speech-service.js';
 import { representativeEssay, externalHeadings } from './fixtures/essay-prompts.mjs';
 import { vividFeedback } from './fixtures/essay-examples.mjs';
+import { meaningFeedback } from './fixtures/expansion-ai.mjs';
+import { reviewedExpansionCases, reviewedFeedback } from './fixtures/expansion-details.mjs';
+import { expansionDetails, detailSelectionStates } from '../js/expansion.js';
 
 // Exercise the real app event handlers with a small DOM boundary double.
 // This is controller coverage, not browser/visual/audio validation.
@@ -76,6 +79,84 @@ async function appHarness(t, { year = 1, activity = 'practice', storyTitle, save
   const state = () => JSON.parse(storage.getItem(STORAGE_KEY));
   return { root, node, click, type, state, spoken, cancellations, requests, events, pack, storage, copied };
 }
+
+function expansionContext(h) {
+  h.root.onchange({ target: { dataset: { keywordMode: '' }, value: 'custom' } });
+  h.node('#custom-keyword').value = 'membantu';
+  h.root.onsubmit({ target: { id: 'custom-keyword-form' }, preventDefault() {} });
+  h.root.onchange({ target: { dataset: {}, id: 'situation-select', value: 'S001' } });
+  const original = h.node('#original-input');
+  Object.assign(original, { id: 'original-input', value: 'Saya membantu ibu.', dataset: {} });
+  h.root.oninput({ target: original });
+  h.node('#student-text').value = 'Saya membantu ibu menyediakan sarapan.';
+  h.type('Saya membantu ibu menyediakan sarapan.');
+}
+
+test('expansion removes the non-AI checker and ignores an obsolete handler while retaining deterministic keyword validation', async t => {
+  const h = await appHarness(t, { activity: 'expansion' });
+  h.type('ali  membaca');
+  assert.ok(!h.root.innerHTML.includes('data-local-check')); assert.ok(!h.root.innerHTML.includes('id="local-feedback"'));
+  h.node('#local-feedback').innerHTML = 'UNCHANGED'; const before = h.storage.getItem(STORAGE_KEY);
+  h.click({ localCheck: '' });
+  assert.equal(h.node('#local-feedback').innerHTML, 'UNCHANGED'); assert.equal(h.storage.getItem(STORAGE_KEY), before);
+  h.node('#original-input').value = 'Ayat tanpa kata kunci.'; h.click({ lockOriginal: '' });
+  const d = h.state().drafts[h.state().activeDrafts['1:expansion']];
+  assert.equal(d.original, ''); assert.match(h.node('#original-keyword-check').textContent, /ayam/);
+  assert.equal(h.requests.length, 0);
+});
+
+test('real expansion controllers send all eight flags and the latest original to all six AI actions without changing writing', async t => {
+  const record = reviewedExpansionCases.find(record => record.year === 4);
+  const h = await appHarness(t, { year: 4, activity: 'expansion', apiResponse: async (_, init) => {
+    const request = JSON.parse(init.body);
+    return Response.json({ ok: true, action: request.action, data: request.action === 'keyword_meaning' ? meaningFeedback : reviewedFeedback(record) });
+  } });
+  expansionContext(h);
+  for (const detail of expansionDetails) h.root.onchange({ target: { dataset: { detail: detail.id }, checked: true } });
+  const id = h.state().activeDrafts['4:expansion'], before = structuredClone(h.state().drafts[id]);
+  for (const action of actionActivities.expansion) {
+    h.click(action === 'keyword_meaning' ? { keywordMeaning: '' } : { ai: action });
+    await new Promise(resolve => setImmediate(resolve));
+    const request = JSON.parse(h.requests.at(-1)[1].body);
+    assert.deepEqual(request.detailSelections, detailSelectionStates(expansionDetails.map(detail => detail.id)));
+    assert.equal(request.year, 4); assert.equal(request.originalSentence, 'Saya membantu ibu.');
+    assert.equal(request.studentText, before.text); assert.equal(request.keyword, 'membantu'); assert.equal(request.situationId, 'S001');
+    h.node('#modal').close();
+    assert.deepEqual(h.state().drafts[id], before);
+  }
+  assert.equal(h.requests.length, 6);
+});
+
+test('changing a detail cancels a pending meaning request immediately and suppresses its late response', async t => {
+  let release, signal;
+  const h = await appHarness(t, { activity: 'expansion', apiResponse: (_, init) => {
+    signal = init.signal;
+    return new Promise(resolve => { release = () => resolve(Response.json({ ok: true, action: 'keyword_meaning', data: meaningFeedback })); });
+  } });
+  expansionContext(h); h.click({ keywordMeaning: '' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(!signal.aborted);
+  h.root.onchange({ target: { dataset: { detail: 'masa' }, checked: true } });
+  assert.ok(signal.aborted); assert.equal(h.node('#keyword-meaning-result').innerHTML, '');
+  h.node('#meaning-teacher-result').innerHTML = 'NEW CONTEXT'; release(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.node('#meaning-teacher-result').innerHTML, 'NEW CONTEXT');
+  assert.equal(h.state().drafts[h.state().activeDrafts['1:expansion']].text, 'Saya membantu ibu menyediakan sarapan.');
+});
+
+test('completed results clear when original or expanded writing changes and the next request uses the revised context', async t => {
+  const h = await appHarness(t, { activity: 'expansion', apiResponse: async () => Response.json({ ok: true, action: 'keyword_meaning', data: meaningFeedback }) });
+  expansionContext(h); h.click({ keywordMeaning: '' }); await new Promise(resolve => setImmediate(resolve));
+  assert.match(h.node('#keyword-meaning-result').innerHTML, /keyword-meaning-card/);
+  const original = h.node('#original-input'); original.value = 'Saya membantu ibu memasak.';
+  h.root.oninput({ target: original }); assert.equal(h.node('#keyword-meaning-result').innerHTML, '');
+  h.click({ keywordMeaning: '' }); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(JSON.parse(h.requests.at(-1)[1].body).originalSentence, original.value);
+  assert.match(h.node('#keyword-meaning-result').innerHTML, /keyword-meaning-card/);
+  h.type('Saya membantu ibu menyediakan makanan untuk keluarga.');
+  assert.equal(h.node('#keyword-meaning-result').innerHTML, '');
+  const d = h.state().drafts[h.state().activeDrafts['1:expansion']];
+  assert.equal(d.text, 'Saya membantu ibu menyediakan makanan untuk keluarga.'); assert.equal(d.original, '');
+});
 
 test('Contoh Karangan reads only the active master model text and cleans up when hidden or changed', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
