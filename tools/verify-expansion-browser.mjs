@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { meaningFeedback, expansionFeedback } from '../tests/fixtures/expansion-ai.mjs';
 const origin = process.argv[2] || process.env.BM_TEST_ORIGIN || 'http://localhost:4174';
 const executable = process.env.BM_TEST_BROWSER || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 await access(executable);
@@ -46,8 +47,11 @@ async function key(key, code, virtualKey) {
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: virtualKey });
 }
 async function screenshot(name) {
-  await evaluate('window.scrollTo(0,0)');
-  const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+  const landscapePhone = await evaluate('innerHeight < 500');
+  await evaluate(landscapePhone ? `document.querySelector('.expansion-situation').scrollIntoView({block:'start'})` : 'window.scrollTo(0,0)');
+  // Edge can repeat compositor tiles in very short full-page captures. Keep
+  // landscape-phone evidence to the actual viewport; DOM bounds cover the page.
+  const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: !landscapePhone });
   await writeFile(path.join(output, name + '.png'), Buffer.from(data, 'base64'));
 }
 try {
@@ -74,11 +78,27 @@ try {
   await send('Runtime.enable'); await send('Page.enable');
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `
     window.__requests = []; window.__spoken = []; window.__pauses = 0; window.__resumes = 0;
+    window.__copied = []; window.__releaseAI = [];
+    const expansionFixture = ${JSON.stringify(expansionFeedback)};
+    const meaningFixture = ${JSON.stringify(meaningFeedback)};
+    Object.defineProperty(navigator, 'clipboard', {value:{writeText:async text=>{if(window.__clipboardFail)throw Error('clipboard denied');window.__copied.push(text);}}});
+    document.execCommand = () => false;
     const fetchOriginal = window.fetch;
     window.fetch = async (url, options) => {
       if (url === '/api/gemini') {
         const input = JSON.parse(options.body); window.__requests.push(input);
-        return Response.json({ok:true,action:input.action,data:{ok:true,summary:'Cadangan pilihan.',errors:[],suggestions:[],explanation:'Kekalkan idea kamu.',example:input.keyword+' digunakan dalam ayat ini.'}});
+        let data = {ok:true,summary:'Cadangan pilihan.',errors:[],suggestions:[],explanation:'Kekalkan idea kamu.',example:input.keyword+' digunakan dalam ayat ini.'};
+        if (input.situation && input.keyword === 'membantu') data = structuredClone(expansionFixture);
+        if (input.action === 'keyword_meaning') data = {...meaningFixture,keyword:input.keyword};
+        if (input.situationId === 'S002') {
+          const text = 'Saya membantu ibu membersihkan rumah bersama keluarga.';
+          if(input.action === 'keyword_meaning') data.contoh_ayat=text;
+          else data.examples=[{text,situationRelevant:true,reason:'Keluarga bekerjasama membersihkan rumah.'}];
+        }
+        if (window.__badMeaning && input.action === 'keyword_meaning') data.meaning_zh='';
+        const response = window.__rateLimited ? Response.json({ok:false,error:{message:'Cikgu AI sibuk. Tunggu seminit sebelum mencuba lagi.'}},{status:429}) : Response.json({ok:true,action:input.action,data});
+        if(window.__holdAI) return new Promise(resolve=>window.__releaseAI.push(()=>resolve(response)));
+        return response;
       }
       return fetchOriginal(url, options);
     };
@@ -174,9 +194,115 @@ try {
   assert.equal(await evaluate(`!!document.querySelector('.expansion-keyword')`), false);
   await click('a[href="#expansion"]'); await until(() => evaluate(`!!document.querySelector('.expansion-keyword')`));
   assert.equal((await saved()).text, 'Emak menunjukkan kasih sayang kepada kami.');
+  // Situation workflow extends (and does not replace) the original browser checks.
+  await click('input[data-keyword-mode][value="custom"]');
+  await type('#custom-keyword', 'membantu'); await evaluate(`document.querySelector('#custom-keyword-form').requestSubmit()`);
+  await type('#student-text', 'Saya membantu ibu menyediakan sarapan.');
+  const pupilWriting = (await saved()).text;
+  assert.match(await evaluate(`document.querySelector('.situation-focus').textContent`), /Belum dipilih/);
+  assert.equal(await evaluate(`document.querySelectorAll('#situation-select option').length`), 101);
+  await select('#situation-category', 'C01');
+  assert.equal(await evaluate(`document.querySelectorAll('#situation-select option').length`), 11);
+  await type('#situation-search', '  SARÁPAN  ');
+  assert.equal(await evaluate(`document.querySelectorAll('#situation-select option').length`), 2);
+  await select('#situation-select', 'S001');
+  assert.equal((await saved()).fields.situationId, 'S001');
+  assert.match(await evaluate(`document.querySelector('.situation-focus').textContent`), /Membantu ibu menyediakan sarapan/);
+  await evaluate(`document.querySelector('input[data-situation-mode][value="builtin"]').focus()`);
+  await key('ArrowRight', 'ArrowRight', 39);
+  assert.equal(await evaluate(`document.querySelector('input[data-situation-mode]:checked').value`), 'custom');
+  assert.equal(await evaluate(`!!document.querySelector('#situation-select')`), false);
+  await type('#custom-situation', '   '); await click('#custom-situation-form button');
+  assert.match(await evaluate(`document.querySelector('#custom-situation-error').textContent`), /dahulu/);
+  await type('#custom-situation', '</textarea><img src=x onerror=alert(1)>'); await click('#custom-situation-form button');
+  assert.equal(await evaluate(`document.querySelectorAll('.expansion-situation img').length`), 0);
+  assert.equal((await saved()).fields.customSituation, undefined);
+  const customSituation = 'Saya membantu ibu menyediakan sarapan di dapur pada hari Ahad.';
+  await type('#custom-situation', '  ' + customSituation + '  '); await click('#custom-situation-form button');
+  assert.equal((await saved()).fields.customSituation, customSituation);
+  assert.equal((await saved()).text, pupilWriting);
+  for (const action of ['sentence_hint', 'sentence_check', 'sentence_expand', 'sentence_vivid', 'vocabulary_help']) {
+    await click(`[data-ai="${action}"]`);
+    await until(() => evaluate(`document.querySelectorAll('#teacher-result [data-copy-example]').length===3`));
+    const input = await evaluate('window.__requests.at(-1)');
+    assert.equal(input.keyword, 'membantu'); assert.equal(input.situationMode, 'custom'); assert.equal(input.situationId, '');
+    assert.equal(input.situation, customSituation); assert.ok(input.expansionOptions.includes('kata_hubung'));
+    const beforeCopies = await evaluate('window.__copied.length');
+    await evaluate(`document.querySelector('#teacher-result [data-copy-example="0"]').focus()`); await key('Enter', 'Enter', 13);
+    await until(() => evaluate(`window.__copied.length===${beforeCopies + 1}`));
+    assert.equal(await evaluate(`window.__copied.at(-1)`), expansionFeedback.examples[0].text);
+    assert.match(await evaluate(`document.querySelector('#teacher-result [data-copy-example="0"]').textContent`), /Disalin/);
+    await click('#teacher-result [data-copy-example="2"]');
+    assert.equal(await evaluate('window.__copied.at(-1)'), expansionFeedback.examples[2].text);
+    assert.equal((await saved()).text, pupilWriting);
+    await click('#teacher-prompt'); await until(() => evaluate(`!!document.querySelector('#generated-prompt')`));
+    assert.ok((await evaluate(`document.querySelector('#generated-prompt').value`)).includes(customSituation));
+    await evaluate(`document.querySelector('#modal').close()`);
+  }
+  await click('[data-keyword-meaning]');
+  await until(() => evaluate(`!!document.querySelector('#meaning-teacher-result [lang="zh-Hans"]')`));
+  assert.equal(await evaluate(`document.querySelectorAll('#meaning-teacher-result [data-copy-example]').length`), 1);
+  assert.equal(await evaluate(`document.querySelector('#meaning-teacher-result [lang="zh-Hans"] dd').textContent`), meaningFeedback.meaning_zh);
+  assert.equal(await evaluate('window.__requests.at(-1).situation'), customSituation);
+  await click('#meaning-teacher-result [data-copy-example]');
+  assert.equal(await evaluate('window.__copied.at(-1)'), meaningFeedback.contoh_ayat);
+  const copiesBeforeFailure = await evaluate('window.__copied.length');
+  await evaluate('window.__clipboardFail=true'); await click('#meaning-teacher-result [data-copy-example]');
+  assert.equal(await evaluate('window.__copied.length'), copiesBeforeFailure);
+  assert.match(await evaluate(`document.querySelector('#toast').textContent`), /Tidak dapat menyalin/);
+  await evaluate('window.__clipboardFail=false');
+  await send('Page.reload'); await until(() => evaluate(`!!document.querySelector('#custom-situation')`));
+  assert.equal((await saved()).fields.situationMode, 'custom'); assert.equal((await saved()).fields.customSituation, customSituation);
+  assert.equal((await saved()).text, pupilWriting);
+  await click('input[data-situation-mode][value="builtin"]');
+  assert.match(await evaluate(`document.querySelector('.situation-focus').textContent`), /Membantu ibu menyediakan sarapan/);
+  await select('#situation-select', 'S002');
+  await evaluate('window.__holdAI=true'); await click('[data-keyword-meaning]');
+  await until(() => evaluate('window.__releaseAI.length===1'));
+  assert.equal(await evaluate(`document.querySelector('[data-keyword-meaning]').disabled`), true);
+  await select('#situation-select', 'S001');
+  assert.equal(await evaluate(`document.querySelector('#keyword-meaning-result').textContent`), '');
+  await evaluate('window.__holdAI=false'); await click('[data-keyword-meaning]');
+  await until(() => evaluate(`!!document.querySelector('#meaning-teacher-result [lang="zh-Hans"]')`));
+  await evaluate('window.__releaseAI.splice(0).forEach(release=>release())');
+  assert.equal(await evaluate(`document.querySelector('#meaning-teacher-result .ai-example-text p').textContent`), meaningFeedback.contoh_ayat);
+  assert.equal((await saved()).text, pupilWriting);
+  // Malformed and quota responses must leave writing and retry controls intact.
+  await select('#situation-select', 'S002'); await evaluate('window.__badMeaning=true'); await click('[data-keyword-meaning]');
+  await until(() => evaluate(`!!document.querySelector('#meaning-teacher-result [role="alert"]')`));
+  assert.equal((await saved()).text, pupilWriting);
+  await evaluate('window.__badMeaning=false;window.__rateLimited=true'); await click('[data-keyword-meaning]');
+  await until(() => evaluate(`document.querySelector('#meaning-teacher-result').textContent.includes('Tunggu seminit')`));
+  assert.equal(await evaluate(`document.querySelector('[data-keyword-meaning]').disabled`), false);
+  await evaluate('window.__rateLimited=false');
+  // Offline selection uses the already loaded static catalogue.
+  await send('Network.enable');
+  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+  await select('#situation-category', 'all'); await type('#situation-search', ''); await select('#situation-select', 'S001');
+  assert.equal((await saved()).fields.situationId, 'S001');
+  await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  const widths = [['desktop',1440,900], ['ipad-portrait',768,1024], ['ipad-landscape',1024,768], ['android-portrait',360,800], ['android-landscape',800,360]];
+  for (const [name, width, height] of widths) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    for (const mode of ['builtin', 'custom']) {
+      await click(`input[data-situation-mode][value="${mode}"]`); await click('[data-keyword-meaning]');
+      await until(() => evaluate(`!!document.querySelector('#meaning-teacher-result [lang="zh-Hans"]')`));
+      const layout = await evaluate(`(() => {
+        const controls=[...document.querySelectorAll('.situation-inputs input,.situation-inputs select,#custom-situation,.meaning-languages,.keyword-meaning-output [data-copy-example]')];
+        return {overflow:document.documentElement.scrollWidth>innerWidth,bad:controls.filter(el=>{const r=el.getBoundingClientRect();return r.left < -1 || r.right > innerWidth+1;}).map(el=>el.id||el.className),copyHeight:document.querySelector('#meaning-teacher-result [data-copy-example]').getBoundingClientRect().height};
+      })()`);
+      assert.equal(layout.overflow, false, `${name} ${mode} situation/meaning overflow`); assert.deepEqual(layout.bad, []); assert.ok(layout.copyHeight >= 44);
+      await screenshot(`situation-${name}-${mode}`);
+      results.push({ name: 'situation-' + name, width, height, mode, status: 'PASS' });
+    }
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 360, height: 800, deviceScaleFactor: 1, mobile: false });
+  await evaluate(`document.querySelector('#meaning-teacher-result').scrollIntoView({block:'start'})`);
+  const meaningScreenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  await writeFile(path.join(output, 'situation-phone-meaning-visible.png'), Buffer.from(meaningScreenshot.data, 'base64'));
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, 'browser-results.json'), JSON.stringify({ browser: version.Browser, checks: results, errors, interactionChecks: 'PASS; AI and speech mocked; no physical devices/audio' }, null, 2));
-  console.log(`PASS: keyword workflow, keyboard, reload, all AI actions, prompt fallback, TTS controls, navigation, ${results.length} responsive mode/viewport checks. Screenshots: ${output}`);
+  console.log(`PASS: keyword/situation workflow, offline catalogue, keyboard, reload, six AI actions, individual copy, trilingual meaning, stale/malformed/rate-limit handling, TTS, navigation, ${results.length} responsive mode/viewport checks. Screenshots: ${output}`);
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { await send('Browser.close').catch(() => {}); socket.close(); }
   if (child.exitCode === null) child.kill();

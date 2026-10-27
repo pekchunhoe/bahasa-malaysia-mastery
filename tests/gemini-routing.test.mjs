@@ -5,6 +5,8 @@ import { createAIService } from "../js/ai-teacher.js";
 import { actionActivities, buildTutorPrompt, essayHintFeedbackSchema, tutorActions, tutorRequest, essayExampleActions, essayExampleFeedbackSchema, normalizeFeedback } from "../js/tutor-actions.js";
 import { exampleFeedback, vividFeedback } from './fixtures/essay-examples.mjs';
 import { essayVividFeedbackSchema } from '../js/tutor-actions.js';
+import { meaningFeedback } from './fixtures/expansion-ai.mjs';
+import { keywordMeaningSchema } from '../js/expansion-tutor.js';
 import endpoint from "../api/gemini.js";
 import legacyEndpoint from "../api/ai/tutor.js";
 import { openTeacher } from "../components/ai-teacher.js";
@@ -24,6 +26,7 @@ const input = (action = "sentence_check", changes = {}) => ({
   action, activity: Object.keys(actionActivities).find(key => actionActivities[key].includes(action)),
   year: 3, title: "Keluarga Saya", studentText: 'Ibu berkata, "Mari makan."\nSaya gembira — café 😊.',
   ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}),
+  ...(action === 'keyword_meaning' ? { keywordMode: 'custom', keyword: 'membantu', expansionOptions: [], originalSentence: '' } : {}),
   ...changes,
 });
 const request = data => new Request("http://localhost/api/gemini", {
@@ -60,7 +63,7 @@ test("every direct action traverses frontend, shared handler and real SDK with o
   } });
   for (const [action, config] of Object.entries(tutorActions)) {
     if (config.mode !== "api") continue;
-    currentFeedback = action === 'essay_vivid' ? vividFeedback : essayExampleActions.includes(action) ? exampleFeedback : feedback;
+    currentFeedback = action === 'keyword_meaning' ? meaningFeedback : action === 'essay_vivid' ? vividFeedback : essayExampleActions.includes(action) ? exampleFeedback : feedback;
     const raw = input(action, { model: "client-override-ignored" });
     const original = structuredClone(raw);
     const result = await service.request(raw);
@@ -71,12 +74,13 @@ test("every direct action traverses frontend, shared handler and real SDK with o
     assert.equal(sent.system_instruction, buildTutorPrompt(raw));
     assert.equal(sent.store, false);
     assert.equal(sent.response_format.mime_type, "application/json");
-    assert.equal(sent.generation_config.max_output_tokens, 900);
+    assert.equal(sent.generation_config.max_output_tokens, action === 'keyword_meaning' ? 1400 : 900);
+    if (action === 'keyword_meaning') assert.deepEqual(sent.response_format.schema, keywordMeaningSchema);
     if (action === "essay_next_step")
       assert.deepEqual(sent.response_format.schema, essayHintFeedbackSchema);
     if (essayExampleActions.includes(action)) assert.deepEqual(sent.response_format.schema, action === 'essay_vivid' ? essayVividFeedbackSchema : essayExampleFeedbackSchema);
   }
-  assert.equal(captured.length, 11);
+  assert.equal(captured.length, 12);
 });
 
 test("missing server settings fail before SDK invocation with explicit safe diagnostics", async () => {

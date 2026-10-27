@@ -1,0 +1,12 @@
+{
+  "provenance": "Mock fixture for local validation; no live Gemini call",
+  "ok": true,
+  "keyword": "membantu",
+  "maksud_bm": "Memberikan pertolongan kepada seseorang untuk melakukan sesuatu.",
+  "meaning_en": "To help someone do something.",
+  "meaning_zh": "帮助别人做某件事情。",
+  "contoh_ayat": "Saya membantu ibu menyediakan sarapan di dapur.",
+  "situationRelevant": true,
+  "reason": "Contoh menerangkan bantuan kepada ibu semasa menyediakan sarapan.",
+  "sameMeaning": true
+}

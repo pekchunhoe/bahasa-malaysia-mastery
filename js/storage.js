@@ -3,6 +3,7 @@ import { validYear } from "../data/schema/models.js";
 import { navigation } from "./config.js";
 import { essayParagraphs, combineEssay, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
 import { migrateExpansionPlan, keywordError, cleanKeyword } from './expansion.js';
+import { hydrateSituationFields } from './expansion-situations.js';
 export const STORAGE_KEY = "bmMastery:state:v1";
 const routes = new Set(navigation.map((item) => item.id));
 const writingRoutes = new Set([
@@ -124,6 +125,7 @@ export function hydrate(raw) {
       };
       if (draft.activity === 'expansion') {
         const saved = base.drafts[id];
+        saved.fields = hydrateSituationFields(saved.fields);
         saved.plan = migrateExpansionPlan(saved.plan);
         saved.fields.expansionMode = saved.fields.expansionMode === 'custom' ? 'custom' : 'builtin';
         if (saved.fields.customKeyword) saved.fields.customKeyword = keywordError(saved.fields.customKeyword) ? '' : cleanKeyword(saved.fields.customKeyword);

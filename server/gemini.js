@@ -7,6 +7,7 @@ import {
   feedbackSchema,
 } from "../js/tutor-actions.js";
 import { TeacherError, MAX_OUTPUT } from "./ai-contract.js";
+import { expansionFeedbackSchema, keywordMeaningSchema } from '../js/expansion-tutor.js';
 export const TIMEOUT_MS = 35000;
 // Same SDK and Interactions route as the source project; server configuration only.
 export function selectGeminiModel(action, env = process.env) {
@@ -16,7 +17,7 @@ export function selectGeminiModel(action, env = process.env) {
   const advanced = ["paragraph_review", "essay_review"].includes(action);
   return {
     model,
-    maxTokens: advanced ? 1800 : 900,
+    maxTokens: advanced ? 1800 : action === 'keyword_meaning' ? 1400 : 900,
   };
 }
 export async function generateTeachingResult(input, { apiKey, env, signal }) {
@@ -33,7 +34,9 @@ export async function generateTeachingResult(input, { apiKey, env, signal }) {
         type: "text",
         mime_type: "application/json",
         schema:
-          input.action === 'essay_vivid'
+          input.activity === 'expansion'
+            ? input.action === 'keyword_meaning' ? keywordMeaningSchema : expansionFeedbackSchema
+            : input.action === 'essay_vivid'
             ? essayVividFeedbackSchema
             : essayExampleActions.includes(input.action)
               ? essayExampleFeedbackSchema

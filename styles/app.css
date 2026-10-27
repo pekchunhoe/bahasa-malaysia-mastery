@@ -1999,6 +1999,30 @@ blockquote {
 .expansion-activity .keyword-check { overflow-wrap: anywhere; }
 .expansion-activity .button { min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
 .expansion-workspace > .teacher-card { min-width: 0; }
+.keyword-focus { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.keyword-focus p { flex: 1 1 220px; margin: 0; min-width: 0; }
+.keyword-focus .button { flex: 0 1 auto; font-size: 14px; color: var(--color-text); }
+.expansion-situation h2 { font-size: 20px; margin-bottom: 18px; }
+.situation-inputs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 18px; }
+.situation-select-field { grid-column: 1 / -1; }
+.expansion-situation input:not([type="radio"]), .expansion-situation select, .expansion-situation textarea { width: 100%; min-width: 0; min-height: 48px; font-size: 16px; }
+.expansion-situation form { margin-top: 18px; }
+.expansion-situation textarea { min-height: 100px; }
+.situation-focus { border-left: 3px solid var(--color-primary); background: var(--color-primary-subtle); padding: 12px 14px; border-radius: 7px; overflow-wrap: anywhere; }
+.keyword-meaning-card { margin-bottom: 0; }
+.keyword-meaning-output, .meaning-languages, .meaning-languages > div { min-width: 0; }
+.meaning-languages { display: grid; gap: 12px; margin: 16px 0; }
+.meaning-languages > div { border: 1px solid var(--color-border); border-radius: 8px; padding: 12px; background: var(--color-surface); }
+.meaning-languages dt { font-weight: 650; }
+.meaning-languages dd { margin: 6px 0 0; overflow-wrap: anywhere; line-height: 1.7; }
+.meaning-languages [lang="zh-Hans"] { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 16px; }
+.expansion-ai-feedback .ai-example-sentence, .keyword-meaning-output .ai-example-sentence { align-items: center; }
+@media (max-width: 650px) {
+  .situation-inputs { grid-template-columns: minmax(0, 1fr); }
+  .keyword-focus .button { width: 100%; }
+  .expansion-ai-feedback .ai-example-sentence, .keyword-meaning-output .ai-example-sentence { flex-direction: row; align-items: flex-start; gap: 10px; }
+  .expansion-ai-feedback .ai-example-sentence .small-button, .keyword-meaning-output .ai-example-sentence .small-button { width: auto; min-width: 60px; }
+}
 @media (max-width: 1200px) {
   .expansion-workspace { grid-template-columns: minmax(0, 1fr); }
   .expansion-workspace .teacher-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }

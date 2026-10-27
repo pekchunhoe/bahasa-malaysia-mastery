@@ -46,15 +46,20 @@ for (const file of all) {
   ) {
     const source = await readFile(file, "utf8");
     if (
-      /AIza[\w-]{20,}|GEMINI_API_KEY|GEMINI_FAST_MODEL|GOOGLE_API_KEY|@google\/genai|GoogleGenAI|GoogleGenerativeAI|generativelanguage\.googleapis\.com|[\u3400-\u9fff]/u.test(
+      /AIza[\w-]{20,}|GEMINI_API_KEY|GEMINI_FAST_MODEL|GOOGLE_API_KEY|@google\/genai|GoogleGenAI|GoogleGenerativeAI|generativelanguage\.googleapis\.com/u.test(
         source,
       )
     )
       throw new Error(
-        `Secret/server import/Chinese label in browser asset: ${file}`,
+        `Secret/server import in browser asset: ${file}`,
       );
+    const relative = path.relative(root, file).replaceAll('\\', '/').replace(/^dist\//, '');
+    // The requested trilingual meaning card is the sole intentional Chinese UI.
+    // Keep the original language check everywhere else, independently of secrets.
+    if (/[\u3400-\u9fff]/u.test(source) && relative !== 'components/expansion-ai.js')
+      throw new Error(`Unexpected Chinese label outside keyword meaning: ${file}`);
   }
 }
 console.log(
-  `Checked ${checked} JavaScript modules and source whitespace/conflict markers; browser assets contain no Gemini credentials, SDK imports or Chinese labels.`,
+  `Checked ${checked} JavaScript modules and source whitespace/conflict markers; browser assets contain no Gemini credentials or SDK imports; Chinese UI is limited to keyword meaning.`,
 );

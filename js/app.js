@@ -26,6 +26,15 @@ import { topicResults, revisionHistory } from "../components/essay-catalog.js";
 import { essayParagraphs, combineEssay, buildEssayParagraphContext, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
 import { cleanKeyword, containsKeyword, expansionKeyword, expansionVocabulary, keywordError, keywordFeedback, selectedExpansionDetails } from './expansion.js';
 import { keywordOptions } from '../components/expansion-keyword.js';
+import { activeSituation, cleanSituation, situationError, situations } from './expansion-situations.js';
+import { situationOptions } from '../components/expansion-situation.js';
+
+let expansionTeacherCleanup = () => {};
+function expansionTeacherIdentity() {
+  return JSON.stringify({ draftId: draft?.id, year: store.state.year, activity: store.state.activity,
+    keyword: draft?.activity === 'expansion' ? expansionKeyword(pack, draft) : null,
+    situation: draft?.activity === 'expansion' ? activeSituation(draft) : null });
+}
 
 const store = createStore(),
   ai = createAIService();
@@ -101,6 +110,8 @@ function prepare() {
   }
 }
 function render() {
+  expansionTeacherCleanup();
+  expansionTeacherCleanup = () => {};
   // A full render replaces speech targets; never leave a detached reading active.
   stopReading();
   prepare();
@@ -303,6 +314,7 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
         keyword: expansionKeyword(pack, draft).keyword,
         originalSentence: draft.original || document.querySelector('#original-input')?.value || draft.fields.originalDraft || '',
         expansionOptions: selectedExpansionDetails(draft),
+        ...activeSituation(draft),
       } : {}),
       ...(!word && draft?.activity === 'essay' && paragraphIndex
         ? buildEssayParagraphContext({ title: store.state.selectedEssayTitle[store.state.year] || draft.title,
@@ -314,7 +326,14 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
         .catch(() => toast('Tidak dapat menyalin sekarang. Cuba lagi.'));
     } catch (error) { toast(error.message); return; }
   }
-  openTeacher({ service: ai, store, request });
+  if (!word && draft?.activity === 'expansion') {
+    expansionTeacherCleanup();
+    const identity = expansionTeacherIdentity();
+    expansionTeacherCleanup = openTeacher({ service: ai, store, request,
+      isCurrent: () => expansionTeacherIdentity() === identity,
+      ...(action === 'keyword_meaning' ? { mount: document.querySelector('#keyword-meaning-result'), triggerButton: document.querySelector('[data-keyword-meaning]') } : {}),
+    });
+  } else openTeacher({ service: ai, store, request });
 }
 function preserveWritingVersion() {
   const saved = store.snapshotDraft(draft.id);
@@ -379,6 +398,12 @@ function bind() {
       write({ fields: { ...draft.fields, customKeywordDraft: target.value.slice(0, 80) } });
     if (target.id === 'keyword-search' && draft?.activity === 'expansion')
       document.querySelector('#expansion-keyword-select').innerHTML = keywordOptions(pack, draft, target.value, store.state.unit);
+    if (target.id === 'custom-situation' && draft?.activity === 'expansion')
+      write({ fields: { ...draft.fields, customSituationDraft: target.value.slice(0, 300) } });
+    if (target.id === 'situation-search' && draft?.activity === 'expansion') {
+      write({ fields: { ...draft.fields, situationQuery: target.value.slice(0, 100) } });
+      document.querySelector('#situation-select').innerHTML = situationOptions(draft);
+    }
     if (target.id === "word-search") refreshWords();
     if (target.dataset.writingFilter === 'query') {
       store.setWritingFilter(store.state.activity, 'query', target.value);
@@ -387,6 +412,21 @@ function bind() {
   };
   root.onchange = (event) => {
     const target = event.target;
+    if (target.dataset.situationMode !== undefined && draft?.activity === 'expansion') {
+      if (!['builtin', 'custom'].includes(target.value)) return;
+      write({ fields: { ...draft.fields, situationMode: target.value } });
+      ai.clearCache(); render();
+      document.querySelector(`input[data-situation-mode][value="${target.value}"]`)?.focus();
+    }
+    if (target.id === 'situation-category' && draft?.activity === 'expansion') {
+      write({ fields: { ...draft.fields, situationCategory: target.value } });
+      document.querySelector('#situation-select').innerHTML = situationOptions(draft);
+    }
+    if (target.id === 'situation-select' && draft?.activity === 'expansion') {
+      if (target.value && !situations.some(record => record.id === target.value)) return;
+      write({ fields: { ...draft.fields, situationMode: 'builtin', situationId: target.value } });
+      ai.clearCache(); render(); document.querySelector('#situation-select')?.focus();
+    }
     if (target.dataset.keywordMode !== undefined && draft?.activity === 'expansion') {
       if (!['builtin', 'custom'].includes(target.value)) return;
       write({ fields: { ...draft.fields, expansionMode: target.value } });
@@ -485,6 +525,17 @@ function bind() {
     if (target.dataset.speechRate !== undefined) speech.setRate(target.value);
   };
   root.onsubmit = event => {
+    if (event.target.id === 'custom-situation-form' && draft?.activity === 'expansion') {
+      event.preventDefault();
+      const input = document.querySelector('#custom-situation');
+      const error = situationError(input.value);
+      input.setAttribute('aria-invalid', String(Boolean(error)));
+      document.querySelector('#custom-situation-error').textContent = error;
+      if (error) { input.focus(); return; }
+      const situation = cleanSituation(input.value);
+      write({ fields: { ...draft.fields, situationMode: 'custom', customSituation: situation, customSituationDraft: situation } });
+      ai.clearCache(); render(); document.querySelector('#custom-situation')?.focus(); return;
+    }
     if (event.target.id !== 'custom-keyword-form' || draft?.activity !== 'expansion') return;
     event.preventDefault();
     const input = document.querySelector('#custom-keyword');
@@ -507,6 +558,7 @@ function bind() {
     const button = event.target.closest("button");
     if (!button || button.disabled) return;
     const d = button.dataset;
+    if ('keywordMeaning' in d) return aiRequest('keyword_meaning');
     if ('hideExample' in d) {
       const disclosure = button.closest('[data-essay-example]');
       if (disclosure) {
@@ -708,6 +760,7 @@ window.addEventListener("hashchange", () => {
   document.querySelector("#main").focus({ preventScroll: true });
 });
 window.addEventListener("pagehide", () => {
+  expansionTeacherCleanup();
   store.persist();
   stopReading();
 });

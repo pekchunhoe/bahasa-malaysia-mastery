@@ -3,7 +3,7 @@ import { actionActivities, tutorActions } from "../js/tutor-actions.js";
 import { writingCounts } from "../js/learning-service.js";
 import { essayParagraphs, paragraphLabels, MAX_ESSAY_TEXT } from '../js/essay-paragraphs.js';
 export function teacherButtons(activity, paragraphIndex) {
-  const actions = (actionActivities[activity] || []).filter(action => activity !== 'essay' || (paragraphIndex ? action !== 'essay_review' : action === 'essay_review'));
+  const actions = (actionActivities[activity] || []).filter(action => action !== 'keyword_meaning' && (activity !== 'essay' || (paragraphIndex ? action !== 'essay_review' : action === 'essay_review')));
   const essayParagraph = activity === 'essay' && paragraphIndex;
   return `<div class="teacher-actions${essayParagraph ? ' essay-ai-actions' : ''}">${actions.map((action, index) => {
     const label = tutorActions[action].label;
