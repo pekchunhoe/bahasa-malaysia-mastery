@@ -2,6 +2,7 @@
 import { validYear } from "../data/schema/models.js";
 import { navigation } from "./config.js";
 import { essayParagraphs, combineEssay, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
+import { migrateExpansionPlan, keywordError, cleanKeyword } from './expansion.js';
 export const STORAGE_KEY = "bmMastery:state:v1";
 const routes = new Set(navigation.map((item) => item.id));
 const writingRoutes = new Set([
@@ -121,6 +122,13 @@ export function hydrate(raw) {
             ? draft.contentVersion
             : "0.1.0",
       };
+      if (draft.activity === 'expansion') {
+        const saved = base.drafts[id];
+        saved.plan = migrateExpansionPlan(saved.plan);
+        saved.fields.expansionMode = saved.fields.expansionMode === 'custom' ? 'custom' : 'builtin';
+        if (saved.fields.customKeyword) saved.fields.customKeyword = keywordError(saved.fields.customKeyword) ? '' : cleanKeyword(saved.fields.customKeyword);
+        if (saved.fields.customKeywordDraft) saved.fields.customKeywordDraft = saved.fields.customKeywordDraft.slice(0, 80);
+      }
       if (draft.activity === 'essay') {
         const paragraphs = essayParagraphs(draft);
         // Fall back to the intact legacy text if paragraph storage is malformed.

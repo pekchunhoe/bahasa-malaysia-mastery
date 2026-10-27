@@ -526,8 +526,9 @@ test('app surface-check button preserves pupil text and explicitly limits its as
 
 test('controller reload restores original and revision after unit/theme navigation with zero network calls', async t => {
   const h = await appHarness(t, { year: 4, activity: 'expansion' });
-  h.root.oninput({ target: { id: 'original-input', value: 'Ayat asal murid.', dataset: {} } });
-  h.node('#original-input').value = 'Ayat asal murid.';
+  const original = `Kami ${h.pack.vocabulary[0].word}.`;
+  h.root.oninput({ target: { id: 'original-input', value: original, dataset: {} } });
+  h.node('#original-input').value = original;
   h.click({ lockOriginal: '' });
   h.type('Ayat murid dengan butiran tambahan.');
   const id = h.state().activeDrafts['4:expansion'];
@@ -535,7 +536,7 @@ test('controller reload restores original and revision after unit/theme navigati
   assert.equal(h.state().drafts[id].itemId, h.pack.items[0].id);
   h.events.pagehide();
   const loaded = await appHarness(t, { year: 4, activity: 'expansion', savedStorage: h.storage });
-  assert.match(loaded.root.innerHTML, /Ayat asal murid\./);
+  assert.ok(loaded.root.innerHTML.includes(original));
   assert.match(loaded.root.innerHTML, /Ayat murid dengan butiran tambahan\.<\/textarea>/);
   assert.equal(loaded.state().activeDrafts['4:expansion'], id);
   assert.equal(loaded.requests.length + h.requests.length, 0);

@@ -24,6 +24,8 @@ import { createDeploymentUpdateNotice } from '../components/deployment-update.js
 import { essayTopicById, writingTopicsFor } from "./essay-service.js";
 import { topicResults, revisionHistory } from "../components/essay-catalog.js";
 import { essayParagraphs, combineEssay, buildEssayParagraphContext, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
+import { cleanKeyword, containsKeyword, expansionKeyword, expansionVocabulary, keywordError, keywordFeedback, selectedExpansionDetails } from './expansion.js';
+import { keywordOptions } from '../components/expansion-keyword.js';
 
 const store = createStore(),
   ai = createAIService();
@@ -149,11 +151,20 @@ function updateWritingUI() {
     target = document.querySelector("#writing-count");
   if (target)
     target.textContent = `${count.words} perkataan · ${count.sentences} ayat`;
+  updateExpansionChecks();
   if (draft.activity === 'essay') {
     const preview = document.querySelector('#student-text');
     if (preview) preview.value = draft.text;
     const copyButton = document.querySelector('[data-copy-combined-essay]');
     if (copyButton) copyButton.disabled = !draft.text.trim();
+  }
+}
+function updateExpansionChecks() {
+  if (draft?.activity !== 'expansion') return;
+  const { keyword } = expansionKeyword(pack, draft);
+  for (const [selector, text] of [['#original-keyword-check', draft.original || draft.fields.originalDraft || ''], ['#expanded-keyword-check', draft.text]]) {
+    const target = document.querySelector(selector);
+    if (target) target.textContent = text.trim() || !keyword ? keywordFeedback(text, keyword) : '';
   }
 }
 function write(changes) {
@@ -249,6 +260,10 @@ function syncEssayEditors() {
   return true;
 }
 function aiRequest(action, word, paragraphIndex, promptButton) {
+  if (!word && draft?.activity === 'expansion' && !expansionKeyword(pack, draft).keyword) {
+    toast('Pilih atau aktifkan kata kunci dahulu.');
+    return;
+  }
   if (!word && draft?.activity === 'essay' && !syncEssayEditors()) return;
   const editorText = word ? "" : draft?.activity === 'essay' ? draft.text : currentEditorText();
   if (!word && draft && editorText !== draft.text)
@@ -283,6 +298,12 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
       ...(store.state.activity === "essay" ? { stage: draft.stage } : {}),
       itemId: word?.id || draft?.itemId || "",
       ...(word || !["sentence", "expansion"].includes(store.state.activity) ? {} : { referenceText: selectedItem(pack, store.state, draft)?.text || "" }),
+      ...(!word && draft?.activity === 'expansion' ? {
+        keywordMode: expansionKeyword(pack, draft).mode,
+        keyword: expansionKeyword(pack, draft).keyword,
+        originalSentence: draft.original || document.querySelector('#original-input')?.value || draft.fields.originalDraft || '',
+        expansionOptions: selectedExpansionDetails(draft),
+      } : {}),
       ...(!word && draft?.activity === 'essay' && paragraphIndex
         ? buildEssayParagraphContext({ title: store.state.selectedEssayTitle[store.state.year] || draft.title,
             year: essayTopicById(draft.contentId)?.year || store.state.year, paragraphIndex, paragraphs: essayParagraphs(draft) }) : {}),
@@ -354,6 +375,10 @@ function bind() {
       write({ plan: { ...draft.plan, [target.dataset.plan]: target.value } });
     if (target.id === "original-input")
       write({ fields: { ...draft.fields, originalDraft: target.value } });
+    if (target.id === 'custom-keyword' && draft?.activity === 'expansion')
+      write({ fields: { ...draft.fields, customKeywordDraft: target.value.slice(0, 80) } });
+    if (target.id === 'keyword-search' && draft?.activity === 'expansion')
+      document.querySelector('#expansion-keyword-select').innerHTML = keywordOptions(pack, draft, target.value, store.state.unit);
     if (target.id === "word-search") refreshWords();
     if (target.dataset.writingFilter === 'query') {
       store.setWritingFilter(store.state.activity, 'query', target.value);
@@ -362,6 +387,22 @@ function bind() {
   };
   root.onchange = (event) => {
     const target = event.target;
+    if (target.dataset.keywordMode !== undefined && draft?.activity === 'expansion') {
+      if (!['builtin', 'custom'].includes(target.value)) return;
+      write({ fields: { ...draft.fields, expansionMode: target.value } });
+      ai.clearCache(); render();
+      document.querySelector(`input[data-keyword-mode][value="${target.value}"]`)?.focus();
+    }
+    if (target.id === 'expansion-keyword-select' && draft?.activity === 'expansion') {
+      const entry = expansionVocabulary(pack).find(word => word.id === target.value);
+      if (!entry) return;
+      stopReading(); ai.clearCache();
+      if (pack.items.some(item => item.id === entry.id)) {
+        draft = store.draft('expansion', draft.title, pack, { itemId: entry.id });
+      }
+      write({ fields: { ...draft.fields, expansionMode: 'builtin', builtinKeywordId: entry.id } });
+      render(); document.querySelector('#expansion-keyword-select')?.focus();
+    }
     if (target.dataset.writingFilter && target.dataset.writingFilter !== 'query') {
       store.setWritingFilter(store.state.activity, target.dataset.writingFilter, target.value);
       refreshWritingTopics();
@@ -415,7 +456,12 @@ function bind() {
       store.draft(draft.activity, draft.title, pack, { itemId: target.value });
       render();
     }
-    if (target.dataset.detail) write({ plan: { ...draft.plan, [target.dataset.detail.replaceAll(" ", "_")]: target.checked ? "yes" : "" } });
+    if (target.dataset.detail) {
+      const key = target.dataset.detail.replaceAll(' ', '_');
+      write({ plan: { ...draft.plan, [key]: target.checked ? 'yes' : '' } });
+      const guidance = document.querySelector(`#guide-${key}`);
+      if (guidance) guidance.hidden = !target.checked;
+    }
     if (target.id === "essay-title") {
       stopReading();
       const topic = pack.writingTopics.find(t => t.id === target.value);
@@ -437,6 +483,18 @@ function bind() {
       else render();
     }
     if (target.dataset.speechRate !== undefined) speech.setRate(target.value);
+  };
+  root.onsubmit = event => {
+    if (event.target.id !== 'custom-keyword-form' || draft?.activity !== 'expansion') return;
+    event.preventDefault();
+    const input = document.querySelector('#custom-keyword');
+    const error = keywordError(input.value);
+    input.setAttribute('aria-invalid', String(Boolean(error)));
+    document.querySelector('#custom-keyword-error').textContent = error;
+    if (error) { input.focus(); return; }
+    const keyword = cleanKeyword(input.value);
+    write({ fields: { ...draft.fields, expansionMode: 'custom', customKeyword: keyword, customKeywordDraft: keyword } });
+    ai.clearCache(); render(); document.querySelector('#custom-keyword')?.focus();
   };
   const editor = document.querySelector("#student-text");
   if (editor) {
@@ -471,6 +529,7 @@ function bind() {
     }
     if ("localCheck" in d) {
       const { messages } = checkWritingBasics(draft.text);
+      if (draft.activity === 'expansion') messages.push(keywordFeedback(draft.text, expansionKeyword(pack, draft).keyword));
       document.querySelector("#local-feedback").innerHTML = messages.length
         ? `<ul>${messages.map(message => `<li>${e(message)}</li>`).join("")}</ul>`
         : "Tiada isu dikesan oleh semakan asas ini. Makna dan tatabahasa belum dinilai.";
@@ -584,6 +643,14 @@ function bind() {
       if (!original) {
         toast("Tulis ayat asal dahulu.");
         return;
+      }
+      if (draft.activity === 'expansion') {
+        const { keyword } = expansionKeyword(pack, draft);
+        if (!keyword || !containsKeyword(original, keyword)) {
+          const message = keywordFeedback(original, keyword);
+          document.querySelector('#original-keyword-check').textContent = message;
+          toast(message); document.querySelector('#original-input')?.focus(); return;
+        }
       }
       write({ original, ...(draft.text ? {} : { text: original }) });
       render();

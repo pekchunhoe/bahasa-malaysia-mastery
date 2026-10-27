@@ -98,7 +98,8 @@ test('legacy essay callers without paragraph context also receive readable exter
 
 test('direct JSON contracts and all non-essay callers remain separate from external essay formatting', () => {
   for (const [activity, actions] of Object.entries(actionActivities)) for (const action of actions) {
-    const request = { ...essayPromptRequest(action), activity, paragraphIndex: activity === 'essay' ? essayPromptRequest(action).paragraphIndex : undefined };
+    const request = { ...essayPromptRequest(action), activity, paragraphIndex: activity === 'essay' ? essayPromptRequest(action).paragraphIndex : undefined,
+      ...(activity === 'expansion' ? { keywordMode: 'custom', keyword: 'membantu', originalSentence: 'Saya membantu ibu.', expansionOptions: [] } : {}) };
     const direct = buildTutorPrompt(request);
     assert.match(direct, /Pulangkan JSON sahaja/);
     assert.doesNotMatch(direct, /Jangan jawab dalam JSON|dibaca terus oleh murid atau guru/);

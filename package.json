@@ -8,6 +8,7 @@
     "preview": "node tools/serve.mjs --dist",
     "build": "node tools/build.mjs",
     "test": "node --test tests/*.test.mjs",
+    "test:expansion:browser": "node tools/verify-expansion-browser.mjs",
     "check": "node tools/check.mjs",
     "data:prepare": "node tools/prepare-data.mjs",
     "predev": "npm run data:prepare",

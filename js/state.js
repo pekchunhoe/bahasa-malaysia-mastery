@@ -89,7 +89,7 @@ export function createStore({
       // Only migrate an unambiguous legacy title. Never guess between starters
       // or reassign a draft that already has a stable identity.
       const matchesContent = d => d.contentId === contentId || (!d.contentId && d.title === title && canAdopt);
-      if (draft && (contentId ? matchesContent(draft) : activity !== "essay" || draft.title === title) && (!itemId || draft.itemId === itemId)) {
+      if (draft && draft.year === state.year && draft.activity === activity && (contentId ? matchesContent(draft) : activity !== "essay" || draft.title === title) && (!itemId || draft.itemId === itemId)) {
         if (contentId && !draft.contentId) { draft.contentId = contentId; persist(); }
         return draft;
       }

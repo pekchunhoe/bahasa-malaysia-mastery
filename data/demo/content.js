@@ -145,7 +145,7 @@ export const activitySets = {
       "perasaan",
       "penerangan",
       "kata adjektif",
-      "kata keterangan",
+      "kata hubung",
     ],
   },
   paragraph: {
