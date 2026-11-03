@@ -92,7 +92,7 @@ test("all production activities render for every year; paragraphs/stories never 
     const pack = getCurriculumPack(year), store = createStore({ storage: memory() });
     store.setYear(year);
     for (const [activity, spec] of Object.entries(activityRegistry)) {
-      const draft = activity === "vocabulary" ? null : store.draft(activity,
+      const draft = ['vocabulary', 'memory'].includes(activity) ? null : store.draft(activity,
         activity === "essay" ? pack.writingTopics[0].title : pack.activitySets[spec.task].title,
         pack, { itemId: ["sentence", "expansion", "practice"].includes(activity) ? pack.items[0].id : "" });
       const html = spec.render({ pack, draft, state: store.state });

@@ -9,6 +9,7 @@ import {
 } from "../js/tutor-actions.js";
 import { TeacherError, MAX_OUTPUT } from "./ai-contract.js";
 import { expansionFeedbackSchema, keywordMeaningSchema, detailExpansionFeedbackSchema, detailExpansionAction } from '../js/expansion-tutor.js';
+import { memoryNotesSchema, memoryReviewSchema, buildMemoryPrompt } from '../js/memory-tutor.js';
 export const TIMEOUT_MS = 35000;
 // Same SDK and Interactions route as the source project; server configuration only.
 export function selectGeminiModel(action, env = process.env, activity) {
@@ -18,7 +19,8 @@ export function selectGeminiModel(action, env = process.env, activity) {
   const advanced = ["paragraph_review", "essay_review"].includes(action);
   return {
     model,
-    maxTokens: advanced ? 1800 : action === 'keyword_meaning' ? 1400 : 900,
+    maxTokens: action === 'memory_points' ? 8192 : action === 'memory_review' ? 4096
+      : advanced ? 1800 : action === 'keyword_meaning' ? 1400 : 900,
   };
 }
 export async function generateTeachingResult(input, { apiKey, env, signal }) {
@@ -28,14 +30,16 @@ export async function generateTeachingResult(input, { apiKey, env, signal }) {
   const result = await ai.interactions.create(
     {
       model: route.model,
-      system_instruction: buildTutorPrompt(input),
-      input: "Berikan bimbingan untuk DATA MURID di atas.",
+      system_instruction: input.activity === 'memory' ? buildMemoryPrompt(input, { includeData: false }) : buildTutorPrompt(input),
+      input: input.activity === 'memory' ? `DATA MURID: ${JSON.stringify(input)}` : "Berikan bimbingan untuk DATA MURID di atas.",
       store: false,
       response_format: {
         type: "text",
         mime_type: "application/json",
         schema:
-          input.activity === 'expansion'
+          input.activity === 'memory'
+            ? input.action === 'memory_points' ? memoryNotesSchema : memoryReviewSchema
+          : input.activity === 'expansion'
             ? input.action === 'keyword_meaning' ? keywordMeaningSchema
               : input.action === detailExpansionAction ? detailExpansionFeedbackSchema : expansionFeedbackSchema
             : input.action === 'essay_vivid'

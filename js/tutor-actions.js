@@ -6,7 +6,12 @@ import { paragraphLabels, combineEssay, MAX_ESSAY_TEXT } from './essay-paragraph
 import { cleanKeyword, expansionDetails, detailSelectionStates, keywordError, keywordFeedback } from './expansion.js';
 import { situationRequest } from './expansion-situations.js';
 import { buildExpansionTutorPrompt, normalizeExpansionFeedback, detailExpansionAction } from './expansion-tutor.js';
+import { memoryActions, memoryRequest, normalizeMemoryFeedback, buildMemoryPrompt } from './memory-tutor.js';
 export const tutorActions = Object.freeze({
+  memory_points: { label: '✨ Cikgu AI — Jana Isi Penting', mode: 'api', textRequired: false,
+    instruction: 'Kenal pasti semua isi penting sebenar bagi setiap perenggan, tanpa bilangan tetap.' },
+  memory_review: { label: '✨ Cikgu AI — Semak Tulisan', mode: 'api',
+    instruction: 'Semak ingatan isi, urutan idea dan Bahasa Melayu tanpa menggantikan tulisan murid.' },
   [detailExpansionAction]: {
     label: 'Cikgu AI · Kembangkan Ikut Butiran', mode: 'api', textRequired: false,
     instruction: 'Cadangkan tiga contoh ayat yang dikembangkan mengikut butiran pilihan murid, tanpa menggantikan tulisan murid.',
@@ -100,6 +105,7 @@ export const essayExampleActions = Object.freeze(['essay_ideas', 'essay_develop'
 export const isEssayReview = input => input?.activity === 'essay' && ['paragraph_review', 'essay_review'].includes(input.action);
 export const MAX_BODY = 32768;
 export const actionActivities = {
+  memory: memoryActions,
   sentence: [
     "sentence_hint",
     "sentence_check",
@@ -145,6 +151,10 @@ export function tutorRequest(raw) {
     !actionActivities[raw.activity].includes(raw.action)
   )
     throw new TutorInputError("Permintaan bimbingan tidak sah.");
+  if (raw.activity === 'memory') {
+    try { return memoryRequest(raw); }
+    catch (error) { throw new TutorInputError(error.message); }
+  }
   const text = (value, max) => {
     if (typeof value !== "string" || value.length > max)
       throw new TutorInputError(`Teks tidak sah atau melebihi ${max} aksara.`);
@@ -305,6 +315,7 @@ export function hasMeaningfulStudentText(value) {
   return letters.length >= 2;
 }
 export function normalizeFeedback(raw, request) {
+  if (request?.activity === 'memory') return normalizeMemoryFeedback(raw, request);
   if (request?.activity === 'expansion') return normalizeExpansionFeedback(raw, request);
   const string = (value) => typeof value === "string" && value.length <= 6000;
   const stringList = (value, max) =>
@@ -473,6 +484,7 @@ export function buildExternalTutorPrompt(raw) {
 export function buildTutorPrompt(raw) {
   const input = tutorRequest(raw),
     profile = difficultyFor(input.year);
+  if (input.activity === 'memory') return buildMemoryPrompt(input);
   if (input.activity === 'expansion') return buildExpansionTutorPrompt(input, tutorActions[input.action].instruction);
   if (input.paragraphIndex || isEssayReview(input)) return buildEssayTutorInstructions(input) + '\n\n' + paragraphOutputFormat(input.action);
   if (input.action === "essay_next_step") {

@@ -133,7 +133,7 @@ test("all activity engines render across all six years without embedding undefin
           ? pack.writingTopics[0].title
           : pack.activitySets[spec.task]?.title;
       const draft =
-        activity === "vocabulary" ? null : store.draft(activity, title, pack);
+        ['vocabulary', 'memory'].includes(activity) ? null : store.draft(activity, title, pack);
       const html = spec.render({ pack, draft, state: store.state });
       assert.ok(html.length > 100);
       assert.ok(!html.includes("undefined"), `${activity} year ${year}`);

@@ -30,6 +30,7 @@ import { activeSituation, cleanSituation, situationError, situations } from './e
 import { situationOptions } from '../components/expansion-situation.js';
 import { detailExpansionAction } from './expansion-tutor.js';
 import { promptCopyFeedback } from '../components/expansion-prompt.js';
+import { createMemoryController } from './memory-controller.js';
 
 const expansionTeachers = new Map();
 function expansionTeacherIdentity(mode = 'general') {
@@ -52,6 +53,7 @@ function clearExpansionTeacher(mode) {
 
 const store = createStore(),
   ai = createAIService();
+const memory = createMemoryController({ store, ai, render });
 let pack,
   draft,
   essayReviewCleanup = () => {},
@@ -100,7 +102,7 @@ function prepare() {
   paragraphSelection = "";
   const route = store.state.activity,
     spec = activityRegistry[route];
-  if (spec && route !== "vocabulary") {
+  if (spec && !['vocabulary', 'memory'].includes(route)) {
     const existing = store.state.drafts[store.state.activeDrafts[`${store.state.year}:${route}`]];
     if (route === "essay") {
       const id = store.state.selectedEssayContent[store.state.year] || existing?.contentId;
@@ -144,7 +146,8 @@ function render() {
     ? 'KATALOG KARANGAN · BELAJAR SELANGKAH DEMI SELANGKAH'
     : `TAHUN ${state.year} · ${route === 'drafts' ? 'IDEA MILIK KAMU' : 'BELAJAR SELANGKAH DEMI SELANGKAH'}`;
   document.title = `${nav.label} · ${appConfig.name}`;
-  const context = { pack, state, draft, speechStatus: speech.availability() };
+  const context = { pack, state, draft, speechStatus: speech.availability(),
+    ...(route === 'memory' ? { memory: memory.prepare() } : {}) };
   let view =
     route === "home"
       ? renderHome(context)
@@ -467,12 +470,14 @@ function rememberParagraph() {
 }
 function bind() {
   const root = document.querySelector("#app");
+  if (store.state.activity === 'memory') memory.bindDisclosure();
   const exampleDisclosure = document.querySelector('[data-essay-example]');
   if (exampleDisclosure) exampleDisclosure.ontoggle = () => {
     if (!exampleDisclosure.open) stopReading();
   };
   root.oninput = (event) => {
     const target = event.target;
+    if (store.state.activity === 'memory' && memory.input(target)) return;
     if (target.dataset.essayParagraph && draft?.activity === 'essay') {
       const index = Number(target.dataset.essayParagraph) - 1;
       if (!Number.isInteger(index) || index < 0 || index > 3) return;
@@ -526,6 +531,7 @@ function bind() {
   };
   root.onchange = (event) => {
     const target = event.target;
+    if (store.state.activity === 'memory' && memory.change(target)) return;
     if (target.dataset.situationMode !== undefined && draft?.activity === 'expansion') {
       if (!['builtin', 'custom'].includes(target.value)) return;
       write({ fields: { ...draft.fields, situationMode: target.value } });
@@ -673,6 +679,7 @@ function bind() {
     const button = event.target.closest("button");
     if (!button || button.disabled) return;
     const d = button.dataset;
+    if (store.state.activity === 'memory' && memory.click(button)) return;
     if (d.copyEssayReview) return copyEssayReviewPrompt(d.copyEssayReview, d.reviewParagraph ? Number(d.reviewParagraph) : undefined, button);
     if (d.copyExpansionPrompt) return copyExpansionPrompt(d.copyExpansionPrompt, button);
     if ('keywordMeaning' in d) return aiRequest('keyword_meaning');

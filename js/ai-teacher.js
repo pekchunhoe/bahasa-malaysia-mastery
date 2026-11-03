@@ -86,8 +86,9 @@ export function createAIService({
         signal?.removeEventListener("abort", abort);
       }
     },
-    clearCache() {
-      cache.clear();
+    clearCache(raw) {
+      if (raw) cache.delete(cacheIdentity(raw));
+      else cache.clear();
     },
   };
 }

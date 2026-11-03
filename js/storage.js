@@ -4,6 +4,7 @@ import { navigation } from "./config.js";
 import { essayParagraphs, combineEssay, MAX_ESSAY_TEXT } from './essay-paragraphs.js';
 import { migrateExpansionPlan, keywordError, cleanKeyword } from './expansion.js';
 import { hydrateSituationFields } from './expansion-situations.js';
+import { hydrateMemory } from './essay-memory.js';
 export const STORAGE_KEY = "bmMastery:state:v1";
 const routes = new Set(navigation.map((item) => item.id));
 const writingRoutes = new Set([
@@ -132,6 +133,8 @@ export function hydrate(raw) {
         if (saved.fields.customKeywordDraft) saved.fields.customKeywordDraft = saved.fields.customKeywordDraft.slice(0, 80);
       }
       if (draft.activity === 'essay') {
+        const memory = hydrateMemory(draft.memory);
+        if (memory) base.drafts[id].memory = memory;
         const paragraphs = essayParagraphs(draft);
         // Fall back to the intact legacy text if paragraph storage is malformed.
         base.drafts[id].paragraphs = combineEssay(paragraphs).length <= MAX_ESSAY_TEXT

@@ -11,6 +11,8 @@ import endpoint from "../api/gemini.js";
 import legacyEndpoint from "../api/ai/tutor.js";
 import { openTeacher } from "../components/ai-teacher.js";
 import { toast } from "../components/ui.js";
+import { memoryInput, memoryNotes, memoryReview } from './fixtures/essay-memory.mjs';
+import { memoryNotesSchema, memoryReviewSchema, buildMemoryPrompt } from '../js/memory-tutor.js';
 
 const env = {
   GEMINI_API_KEY: "fixture-only-private-key",
@@ -27,6 +29,7 @@ const input = (action = "sentence_check", changes = {}) => ({
   year: 3, title: "Keluarga Saya", studentText: 'Ibu berkata, "Mari makan."\nSaya gembira — café 😊.',
   ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}),
   ...(['keyword_meaning', 'sentence_expand_details'].includes(action) ? { keywordMode: 'custom', keyword: 'membantu', expansionOptions: ['tempat'], originalSentence: '' } : {}),
+  ...(action.startsWith('memory_') ? memoryInput(action) : {}),
   ...changes,
 });
 const request = data => new Request("http://localhost/api/gemini", {
@@ -64,6 +67,7 @@ test("every direct action traverses frontend, shared handler and real SDK with o
   for (const [action, config] of Object.entries(tutorActions)) {
     if (config.mode !== "api") continue;
     currentFeedback = action === 'sentence_expand_details' ? expansionFeedback : action === 'keyword_meaning' ? meaningFeedback : action === 'essay_vivid' ? vividFeedback : essayExampleActions.includes(action) ? exampleFeedback : feedback;
+    if (action.startsWith('memory_')) currentFeedback = action === 'memory_points' ? memoryNotes : memoryReview(memoryInput(action).importantPoints);
     const raw = input(action, { model: "client-override-ignored" });
     const original = structuredClone(raw);
     const result = await service.request(raw);
@@ -71,17 +75,19 @@ test("every direct action traverses frontend, shared handler and real SDK with o
     assert.deepEqual(raw, original);
     const sent = captured.at(-1);
     assert.equal(sent.model, env.GEMINI_FAST_MODEL);
-    assert.equal(sent.system_instruction, buildTutorPrompt(raw));
+    assert.equal(sent.system_instruction, raw.activity === 'memory' ? buildMemoryPrompt(tutorRequest(raw), { includeData: false }) : buildTutorPrompt(raw));
+    if (raw.activity === 'memory') assert.equal(sent.input, `DATA MURID: ${JSON.stringify(tutorRequest(raw))}`);
     assert.equal(sent.store, false);
     assert.equal(sent.response_format.mime_type, "application/json");
-    assert.equal(sent.generation_config.max_output_tokens, action === 'keyword_meaning' ? 1400 : 900);
+    assert.equal(sent.generation_config.max_output_tokens, action === 'memory_points' ? 8192 : action === 'memory_review' ? 4096 : action === 'keyword_meaning' ? 1400 : 900);
+    if (action.startsWith('memory_')) assert.deepEqual(sent.response_format.schema, action === 'memory_points' ? memoryNotesSchema : memoryReviewSchema);
     if (action === 'sentence_expand_details') assert.deepEqual(sent.response_format.schema, detailExpansionFeedbackSchema);
     if (action === 'keyword_meaning') assert.deepEqual(sent.response_format.schema, keywordMeaningSchema);
     if (action === "essay_next_step")
       assert.deepEqual(sent.response_format.schema, essayHintFeedbackSchema);
     if (essayExampleActions.includes(action)) assert.deepEqual(sent.response_format.schema, action === 'essay_vivid' ? essayVividFeedbackSchema : essayExampleFeedbackSchema);
   }
-  assert.equal(captured.length, 13);
+  assert.equal(captured.length, 15);
 });
 
 test("missing server settings fail before SDK invocation with explicit safe diagnostics", async () => {

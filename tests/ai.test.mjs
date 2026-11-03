@@ -15,6 +15,7 @@ import { createAIService } from "../js/ai-teacher.js";
 import { createTeacherHandler } from "../server/ai-handler.js";
 import { createTutorLimiter } from "../server/ai-rate-limit.js";
 import { selectGeminiModel } from "../server/gemini.js";
+import { memoryInput } from './fixtures/essay-memory.mjs';
 const input = (changes = {}) => ({
   action: "sentence_check",
   activity: "sentence",
@@ -44,11 +45,11 @@ const mockEnv = {
 };
 const okResponse = (action) =>
   Response.json({ ok: true, action, data: feedback });
-test("all fifteen tutor actions route through a single configuration", () => {
-  assert.equal(Object.keys(tutorActions).length, 15);
+test("all seventeen tutor actions route through a single configuration", () => {
+  assert.equal(Object.keys(tutorActions).length, 17);
   for (const [activity, actions] of Object.entries(actionActivities))
     for (const action of actions) {
-      const result = tutorRequest(input({ action, activity, ...(activity === 'expansion' ? { keywordMode: 'builtin', keyword: 'bermain', originalSentence: 'Ali bermain bola.', expansionOptions: ['tempat'] } : {}), ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}) }));
+      const result = tutorRequest(input({ action, activity, ...(activity === 'memory' ? memoryInput(action) : {}), ...(activity === 'expansion' ? { keywordMode: 'builtin', keyword: 'bermain', originalSentence: 'Ali bermain bola.', expansionOptions: ['tempat'] } : {}), ...(essayExampleActions.includes(action) ? { paragraphIndex: 1, previousParagraphs: [] } : {}) }));
       assert.equal(result.action, action);
       assert.equal(
         executionMode(action),

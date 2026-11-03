@@ -55,6 +55,15 @@ export const navigation = [
     tag: "KARANG",
   },
   {
+    id: "memory",
+    label: "🧠 Ingat Karangan",
+    icon: "book",
+    description: "Ingat isi penting, tulis semula dengan ayat sendiri.",
+    color: "purple",
+    step: "05+",
+    tag: "INGAT",
+  },
+  {
     id: "story",
     label: "Rantai Cerita",
     icon: "spark",

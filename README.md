@@ -31,6 +31,13 @@ audit, changed-file inventory, tests and remaining visual verification limits.
 
 ## Run locally
 
+**🧠 Ingat Karangan** sits immediately after Karangan Berpandu. It uses the
+selected pupil essay for Lihat & Ingat, Tutup & Ingat and Tulis Semula. Cikgu AI
+generates content-dependent point lists and checks recall, sequence and Malay
+language only on request. Reconstructed paragraphs combine into a copyable essay;
+practice and source histories use the existing browser autosave. See the
+[implementation report](audit/INGAT_KARANGAN.md) for verification and limits.
+
 Use Node 22.16+ (validated on Node 24) and Python 3 for read-only workbook extraction. No Python packages are needed. Set `PYTHON` to the Python executable if it is not available as `python`.
 
 ```sh
