@@ -45,7 +45,7 @@ test('all eight external essay actions have readable, action-specific final serv
 
 test('whole essay review preserves original writing, natural relevance and adaptive feedback', async () => {
   const service = createAIService({ fetcher: () => assert.fail('Review is local') });
-  const { prompt } = await service.request(essayPromptRequest());
+  const { prompt } = await service.request(essayPromptRequest(), { mode: 'prompt' });
   assertReadableEssayPrompt(prompt);
   for (const fragment of ['Semakan Karangan', 'Ringkasan', 'Perkara yang boleh dibaiki', 'Penjelasan', 'Contoh',
     'bukan transkripsi atau imlak', 'bukan skema jawapan', 'bukan padanan kata kunci sahaja',
@@ -72,7 +72,7 @@ test('blank review validation remains; punctuation gets an honest starting instr
     await assert.rejects(service.request(essayPromptRequest('essay_review', { studentText })), /Tulis sesuatu dahulu/);
   }
   for (const studentText of ['...', '???', ',,,', 'x']) {
-    const { prompt } = await service.request(essayPromptRequest('essay_review', { studentText }));
+    const { prompt } = await service.request(essayPromptRequest('essay_review', { studentText }), { mode: 'prompt' });
     assert.match(prompt, /Belum ada tulisan yang bermakna untuk disemak/);
     assert.match(prompt, /Jangan menilai tanda baca sahaja sebagai karangan/);
     assert.match(prompt, /Ajak murid menulis satu ayat sendiri/);

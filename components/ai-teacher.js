@@ -1,6 +1,6 @@
 import { e, list, showModal, toast } from "./ui.js";
 import { provenanceLabel } from "./enrichment.js";
-import { hasMeaningfulStudentText, tutorActions } from "../js/tutor-actions.js";
+import { hasMeaningfulStudentText, tutorActions, isEssayReview } from "../js/tutor-actions.js";
 import { copyWithConfirmation } from './clipboard.js';
 import { exampleCards, attachExampleCopyButtons } from './ai-examples.js';
 import { renderExpansionFeedback } from './expansion-ai.js';
@@ -87,6 +87,8 @@ export function openTeacher({ service, request, store, mount, isCurrent = () => 
           const examples = [...(vivid && f.improvedParagraph ? [{ type: 'improvedParagraph', text: f.improvedParagraph }] : []), ...f.examples];
           result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p><section class="ai-hint-result"><h3>${vivid ? e(tutorActions[request.action].label) : 'Cadangan untuk kamu'}</h3><p>${e(f.summary)}</p>${f.suggestions.length ? list(f.suggestions) : ''}<div class="ai-example-list">${exampleCards(examples, request)}</div><p class="small muted">Contoh ini ialah pilihan untuk kamu ubah suai. Gunakan hanya butiran yang benar bagi cerita kamu. Tulisan kamu tidak diisi atau diganti secara automatik.</p></section>`;
           attachExampleCopyButtons(result, examples.map(example => example.text));
+        } else if (isEssayReview(request)) {
+          result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p><section class="ai-hint-result"><h3>${request.paragraphIndex ? `Semakan Perenggan ${request.paragraphIndex}` : 'Semakan Karangan'}</h3><h4>Kekuatan dan ringkasan</h4><p>${e(f.summary)}</p><h4>Kesalahan yang perlu diperbaik</h4>${f.errors.length ? list(f.errors) : '<p>Tiada kesalahan khusus dilaporkan.</p>'}${f.suggestions.length ? `<h4>Cadangan penambahbaikan</h4>${list(f.suggestions)}` : ''}${f.explanation ? `<h4>Bimbingan Cikgu AI</h4><p>${e(f.explanation)}</p>` : ''}${f.example ? `<div class="notice"><strong>Contoh pembetulan pilihan</strong><p>${e(f.example)}</p></div>` : ''}<p class="small muted">Baca cadangan dan baiki tulisan dengan kata-kata sendiri.</p></section>`;
         } else {
           const isParagraphHint = request.action === 'sentence_hint' && request.paragraphIndex;
           result.innerHTML = `<p class="source-label">${e(provenanceLabel(response))}</p>${isParagraphHint ? paragraphHint(f, request) : `<h3>${e(f.summary)}</h3><h4>Kesalahan yang perlu dibetulkan</h4>${f.errors.length ? list(f.errors) : "<p>Tiada kesalahan khusus dilaporkan.</p>"}<h4>Cadangan untuk menjadikan ayat lebih baik</h4>${f.suggestions.length ? list(f.suggestions) : "<p>Tiada cadangan tambahan.</p>"}<p>${e(f.explanation)}</p>${f.example ? `<div class="notice"><strong>Contoh AI — bukan jawapan untuk disalin</strong><p>${e(f.example)}</p></div>` : ""}<p class="small muted">Cadangan kata AI bukan data kurikulum rasmi.</p>`}`;

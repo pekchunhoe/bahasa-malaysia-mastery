@@ -1,4 +1,19 @@
-# Current essay integration verification — 29 September 2026
+# Karangan Berpandu direct-review verification — 3 November 2026
+
+- Both reviews use the shared secure route and server-pinned `gemini-3.5-flash-lite`.
+- `npm test`: 288 passed, 0 failed. Production build and JavaScript/security checks pass.
+- Isolated headless Edge checks pass at 1440×1000, 768×1024, 1024×768, 360×800
+  and 320×720: no horizontal overflow, overlap, truncated review controls or feedback overflow.
+- Correct live paragraph/full essay, independent mini copies, keyboard activation,
+  clipboard failure/retry, duplicate prevention, rate-limit and invalid-response retries verified.
+- Screenshots, full generated external prompt examples, exact files and limits:
+  [direct-review implementation report](audit/KARANGAN_DIRECT_REVIEW.md).
+- Provider requests were mocked. No local Gemini key was available for live validation.
+- No commit, push, deployment, secrets or production-data changes.
+
+---
+
+# Previous essay integration verification — 29 September 2026
 
 - 1,000 complete, unique IDs/titles/examples; counts by year:
   **100 / 140 / 160 / 180 / 220 / 200**. Zero excluded records or word-count mismatches.

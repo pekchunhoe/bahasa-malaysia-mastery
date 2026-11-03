@@ -40,7 +40,9 @@ npm run dev
 
 Open **http://localhost:4174**. Writing, transcription checks, local autosave and Generate Prompt work without an API key.
 
-To enable live AI locally, copy `.env.example` to `.env.local` and set the server-only `GEMINI_API_KEY` and `GEMINI_FAST_MODEL`. On Vercel, configure these in the project environment settings. The intended production model value is `gemini-3.5-flash-lite`. All direct AI actions use only `GEMINI_FAST_MODEL`: missing configuration returns an explicit server error, and failures never substitute another model. Restart the local server after configuration changes. Never put credentials in browser files. Paragraph and essay reviews default to local prompt generation and cannot invoke a paid route from the pupil interface.
+To enable live AI locally, copy `.env.example` to `.env.local` and set the server-only `GEMINI_API_KEY` and `GEMINI_FAST_MODEL`. On Vercel, configure these in the project environment settings. The intended production model value is `gemini-3.5-flash-lite`. Karangan Berpandu's **Semak perenggan ini** and **Semak karangan saya** use that exact model through the shared server route. Other direct actions retain `GEMINI_FAST_MODEL`; missing configuration returns an explicit server error, and failures never substitute another model. Restart the local server after configuration changes. Never put credentials in browser files. Each Karangan Berpandu review has a miniature **Salin Prompt** icon that copies readable external instructions locally without an API request. The separate Bina Perenggan tab retains its prompt-only review.
+
+See [the direct-review report](audit/KARANGAN_DIRECT_REVIEW.md) for validation, screenshots and complete generated external prompt examples.
 
 ## Check and build
 

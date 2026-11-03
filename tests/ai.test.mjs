@@ -193,7 +193,7 @@ test("Generate Prompt never calls the network, including expensive reviews", asy
     },
   });
   for (const action of ["paragraph_review", "essay_review"]) {
-    const result = await service.request(input({ action, activity: "essay" }));
+    const result = await service.request(input({ action, activity: "essay" }), { mode: 'prompt' });
     assert.equal(result.mode, "prompt");
     assert.ok(result.prompt.includes("Ali bermain bola."));
   }
@@ -337,7 +337,7 @@ test("server rejects bypassing prompt-only modes and handles missing credentials
     },
   });
   const review = await handler(
-    request(input({ action: "essay_review", activity: "essay" })),
+    request(input({ action: "paragraph_review", activity: "paragraph" })),
   );
   assert.equal(review.status, 400);
   assert.equal((await review.json()).error.code, "PROMPT_ONLY");

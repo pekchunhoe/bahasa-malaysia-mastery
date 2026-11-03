@@ -23,7 +23,7 @@ export function createAIService({
       // A manual local fallback can never upgrade a prompt-only task to paid API.
       if (
         mode === "prompt" ||
-        executionMode(request.action, modes) === "prompt"
+        executionMode(request.action, modes, request.activity) === "prompt"
       )
         return { mode: "prompt", prompt: buildExternalTutorPrompt(request) };
       const key = cacheIdentity(request),

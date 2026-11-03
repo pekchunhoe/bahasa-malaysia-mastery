@@ -5,13 +5,14 @@ import {
   essayExampleFeedbackSchema,
   essayVividFeedbackSchema,
   feedbackSchema,
+  isEssayReview,
 } from "../js/tutor-actions.js";
 import { TeacherError, MAX_OUTPUT } from "./ai-contract.js";
 import { expansionFeedbackSchema, keywordMeaningSchema, detailExpansionFeedbackSchema, detailExpansionAction } from '../js/expansion-tutor.js';
 export const TIMEOUT_MS = 35000;
 // Same SDK and Interactions route as the source project; server configuration only.
-export function selectGeminiModel(action, env = process.env) {
-  const model = env.GEMINI_FAST_MODEL;
+export function selectGeminiModel(action, env = process.env, activity) {
+  const model = isEssayReview({ action, activity }) ? 'gemini-3.5-flash-lite' : env.GEMINI_FAST_MODEL;
   if (!model?.trim())
     throw new TeacherError("AI_MODEL_NOT_CONFIGURED", 500);
   const advanced = ["paragraph_review", "essay_review"].includes(action);
@@ -21,7 +22,7 @@ export function selectGeminiModel(action, env = process.env) {
   };
 }
 export async function generateTeachingResult(input, { apiKey, env, signal }) {
-  const route = selectGeminiModel(input.action, env);
+  const route = selectGeminiModel(input.action, env, input.activity);
   const { GoogleGenAI } = await import("@google/genai");
   const ai = new GoogleGenAI({ apiKey });
   const result = await ai.interactions.create(

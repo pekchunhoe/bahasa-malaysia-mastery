@@ -42,8 +42,8 @@ for (let index = 1; index <= 4; index++) {
         return handler(new Request('http://localhost' + url, options));
       } });
       const response = await service.request(source);
-      if (tutorActions[action].mode === 'prompt') assert.equal(response.prompt, buildExternalTutorPrompt(source));
-      else assert.deepEqual(captured, clean);
+      assert.equal(response.mode, 'api');
+      assert.deepEqual(captured, clean);
       assert.deepEqual(source, before);
     }
   });
@@ -128,14 +128,16 @@ test('essay rendering has four labelled editors, scoped actions, one readonly pr
     for (let i = 1; i <= 4; i++) {
       assert.ok(html.includes(`for="essay-paragraph-${i}"`));
       assert.equal((html.match(new RegExp(`data-ai-paragraph="${i}"`, 'g')) || []).length, 7);
-      assert.equal((html.match(new RegExp(`data-prompt-paragraph="${i}"`, 'g')) || []).length, 7);
+      assert.equal((html.match(new RegExp(`data-prompt-paragraph="${i}"`, 'g')) || []).length, 6);
       for (const action of actionActivities.essay.filter(a => a !== 'essay_review')) {
         assert.ok(html.includes(`data-ai="${action}" data-ai-paragraph="${i}"`));
-        assert.ok(html.includes(`data-jana-prompt="${action}" data-prompt-paragraph="${i}"`));
+        assert.ok(html.includes(action === 'paragraph_review' ? `data-copy-essay-review="${action}" data-review-paragraph="${i}"` : `data-jana-prompt="${action}" data-prompt-paragraph="${i}"`));
       }
     }
-    assert.equal((html.match(new RegExp(`class="teacher-action-pair essay-ai-action-group"`, 'g')) || []).length, 28);
-    assert.equal((html.match(/>Jana Prompt<\/button>/g) || []).length, 28);
+    assert.equal((html.match(new RegExp(`class="teacher-action-pair essay-ai-action-group"`, 'g')) || []).length, 24);
+    assert.equal((html.match(/>Jana Prompt<\/button>/g) || []).length, 24);
+    assert.equal((html.match(/data-copy-essay-review="paragraph_review"/g) || []).length, 4);
+    assert.equal((html.match(/data-copy-essay-review="essay_review"/g) || []).length, 1);
     const paragraphMarkup = html.split('<section class="essay-combined"')[0];
     assert.equal((paragraphMarkup.match(/<span class="mini-label">Jana prompt<\/span>/g) || []).length, 0);
     assert.match(html, /id="student-text" readonly aria-readonly="true"/);

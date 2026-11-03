@@ -5,7 +5,7 @@ import { appConfig, labels, navigation } from "./config.js";
 import { createStore } from "./state.js";
 import { getCurriculumPack } from "./curriculum-service.js";
 import { createAIService } from "./ai-teacher.js";
-import { executionMode } from "./tutor-actions.js";
+import { executionMode, isEssayReview, tutorRequest } from "./tutor-actions.js";
 import { createSpeechService } from "./speech-service.js";
 import {
   draftText,
@@ -54,6 +54,7 @@ const store = createStore(),
   ai = createAIService();
 let pack,
   draft,
+  essayReviewCleanup = () => {},
   paragraphSelection = "",
   activeSpeechStatus = () => {},
   activeSpeechCleanup = () => {};
@@ -124,6 +125,7 @@ function prepare() {
   }
 }
 function render() {
+  essayReviewCleanup();
   clearExpansionTeacher();
   // A full render replaces speech targets; never leave a detached reading active.
   stopReading();
@@ -277,6 +279,55 @@ function liveEssayParagraphs() {
 function liveCombinedEssay() {
   return combineEssay(liveEssayParagraphs()).trim();
 }
+// Both review workflows read the same live editors. This snapshot is read-only:
+// copying must not autosave, create history or disturb an open feedback panel.
+function essayReviewRequest(action, paragraphIndex) {
+  if (!isEssayReview({ activity: draft?.activity, action }) ||
+      (action === 'paragraph_review' && (!Number.isInteger(paragraphIndex) || paragraphIndex < 1 || paragraphIndex > 4)) ||
+      (action === 'essay_review' && paragraphIndex !== undefined))
+    throw Error('Pilih perenggan atau karangan yang hendak disemak.');
+  const topic = essayTopicById(draft.contentId), paragraphs = liveEssayParagraphs();
+  if (combineEssay(paragraphs).length > MAX_ESSAY_TEXT)
+    throw Error('Karangan melebihi had 16,000 aksara. Pendekkan tulisan sebelum meminta bimbingan.');
+  const title = store.state.selectedEssayTitle?.[store.state.year] || draft.title;
+  const year = topic?.year || store.state.year;
+  const planningNotes = Array.from({ length: 8 }, (_, i) => {
+    const key = `p${i}`, control = document.querySelector(`[data-plan="${key}"]`);
+    return control?.dataset.plan === key ? control.value : draft.plan[key] || '';
+  });
+  return { action, activity: 'essay', title, year, contentId: draft.contentId || '', stage: draft.stage,
+    writingType: topic?.writing_type || '', planningNotes,
+    ...(paragraphIndex ? buildEssayParagraphContext({ title, year, paragraphIndex, paragraphs })
+      : { studentText: combineEssay(paragraphs) }) };
+}
+function copyEssayReviewPrompt(action, paragraphIndex, button, mini = true) {
+  const feedback = mini ? button.closest('.expansion-ai-pair').querySelector('[data-prompt-copy-feedback]') : button;
+  const failed = message => mini ? promptCopyFeedback(button, message) : toast(message);
+  try {
+    const prompt = ai.externalPrompt(essayReviewRequest(action, paragraphIndex));
+    return copyWithConfirmation(button, prompt, { feedback })
+      .catch(() => failed('Tidak dapat menyalin sekarang. Cuba lagi.'));
+  } catch (error) { failed(error.message); }
+}
+function reviewEssay(action, paragraphIndex, triggerButton) {
+  try {
+    const request = essayReviewRequest(action, paragraphIndex);
+    tutorRequest(request); // Validate before autosave or starting the existing review UI.
+    if (!syncEssayEditors()) return;
+    if (draft.text.trim()) {
+      preserveWritingVersion();
+      const history = document.querySelector('#writing-revisions');
+      if (history) history.outerHTML = revisionHistory(draft);
+    }
+    essayReviewCleanup();
+    const identity = JSON.stringify(request);
+    essayReviewCleanup = openTeacher({ service: ai, store, request, triggerButton,
+      isCurrent: () => {
+        try { return JSON.stringify(essayReviewRequest(action, paragraphIndex)) === identity; }
+        catch { return false; }
+      } });
+  } catch (error) { toast(error.message); }
+}
 function syncEssayEditors() {
   const paragraphs = liveEssayParagraphs();
   if (combineEssay(paragraphs).length > MAX_ESSAY_TEXT) {
@@ -324,7 +375,10 @@ function copyExpansionPrompt(action, button) {
     promptCopyFeedback(button, error.message);
   }
 }
-function aiRequest(action, word, paragraphIndex, promptButton) {
+function aiRequest(action, word, paragraphIndex, promptButton, triggerButton) {
+  if (!word && isEssayReview({ activity: draft?.activity, action }))
+    return promptButton ? copyEssayReviewPrompt(action, paragraphIndex, promptButton, false)
+      : reviewEssay(action, paragraphIndex, triggerButton);
   if (action === detailExpansionAction && draft?.activity === 'expansion') {
     const message = selectedExpansionDetails(draft).length ? '' : 'Pilih sekurang-kurangnya satu butiran dahulu.';
     document.querySelector('#detail-ai-status').textContent = message;
@@ -353,7 +407,7 @@ function aiRequest(action, word, paragraphIndex, promptButton) {
     (action === "paragraph_review" && store.state.activity === "essay" && !paragraphIndex
       ? paragraphSelection || latestText
       : latestText);
-  const essayPromptOnly = draft?.activity === 'essay' && (promptButton || executionMode(action) === 'prompt');
+  const essayPromptOnly = draft?.activity === 'essay' && (promptButton || executionMode(action, {}, draft.activity) === 'prompt');
   if (!word && !essayPromptOnly && ['essay', 'paragraph', 'story'].includes(draft?.activity) && latestText.trim()) {
     preserveWritingVersion();
     const history = document.querySelector('#writing-revisions');
@@ -619,6 +673,7 @@ function bind() {
     const button = event.target.closest("button");
     if (!button || button.disabled) return;
     const d = button.dataset;
+    if (d.copyEssayReview) return copyEssayReviewPrompt(d.copyEssayReview, d.reviewParagraph ? Number(d.reviewParagraph) : undefined, button);
     if (d.copyExpansionPrompt) return copyExpansionPrompt(d.copyExpansionPrompt, button);
     if ('keywordMeaning' in d) return aiRequest('keyword_meaning');
     if ('hideExample' in d) {
@@ -673,7 +728,7 @@ function bind() {
       write({ fields: { ...draft.fields, feedback: JSON.stringify(feedback), checkedText: draft.text } });
       render();
     }
-    if (d.ai) aiRequest(d.ai, undefined, d.aiParagraph ? Number(d.aiParagraph) : undefined);
+    if (d.ai) aiRequest(d.ai, undefined, d.aiParagraph ? Number(d.aiParagraph) : undefined, undefined, button);
     if (d.janaPrompt) return aiRequest(d.janaPrompt, undefined, Number(d.promptParagraph), button);
     if ('copyCombinedEssay' in d) {
       const text = liveCombinedEssay();
@@ -821,6 +876,7 @@ window.addEventListener("hashchange", () => {
   document.querySelector("#main").focus({ preventScroll: true });
 });
 window.addEventListener("pagehide", () => {
+  essayReviewCleanup();
   clearExpansionTeacher();
   store.persist();
   stopReading();

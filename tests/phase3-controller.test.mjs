@@ -14,6 +14,7 @@ import { expansionFeedback, meaningFeedback } from './fixtures/expansion-ai.mjs'
 import { reviewedExpansionCases, reviewedFeedback } from './fixtures/expansion-details.mjs';
 import { expansionDetails, detailSelectionStates } from '../js/expansion.js';
 import { detailFeedback } from './fixtures/expansion-separation.mjs';
+import { reviewFeedback, reviewParagraphs } from './fixtures/essay-review.mjs';
 
 // Exercise the real app event handlers with a small DOM boundary double.
 // This is controller coverage, not browser/visual/audio validation.
@@ -102,6 +103,90 @@ function miniPromptControl(h, action) {
   feedback.isConnected = true; button.setAttribute('aria-label', 'Salin Prompt');
   return { button, feedback, copy: () => h.root.onclick({ target: { closest: () => button } }) };
 }
+
+function essayMiniControl(h, action, index) {
+  const control = miniPromptControl(h, action);
+  control.button.dataset = { copyEssayReview: action, ...(index ? { reviewParagraph: String(index) } : {}) };
+  return control;
+}
+
+test('both reviews display real service feedback using all four exact unsaved editors and never rewrite them', async t => {
+  const h = await appHarness(t, { year: 3, activity: 'essay', apiResponse: async (url, init) =>
+    Response.json({ ok: true, action: JSON.parse(init.body).action, data: reviewFeedback }) });
+  const id = h.state().activeDrafts['3:essay'];
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  for (let index = 1; index <= 4; index++) {
+    const live = reviewParagraphs.map((text, i) => `${text} Draf ${index}-${i}.`);
+    live.forEach((text, i) => { h.node(`#essay-paragraph-${i + 1}`).value = text; });
+    h.click({ ai: 'paragraph_review', aiParagraph: String(index) }); await settle();
+    const request = JSON.parse(h.requests.at(-1)[1].body);
+    assert.equal(request.studentText, live[index - 1]);
+    assert.deepEqual(request.previousParagraphs, live.slice(0, index - 1));
+    assert.equal(request.paragraphIndex, index);
+    assert.equal(request.title, h.state().drafts[id].title);
+    assert.match(h.node('#teacher-result').innerHTML, new RegExp(`Semakan Perenggan ${index}`));
+    assert.ok(h.node('#teacher-result').innerHTML.includes(reviewFeedback.explanation));
+    assert.deepEqual(h.state().drafts[id].paragraphs, live);
+    live.forEach((text, i) => assert.equal(h.node(`#essay-paragraph-${i + 1}`).value, text));
+    h.node('#modal').close();
+  }
+  reviewParagraphs.forEach((text, i) => { h.node(`#essay-paragraph-${i + 1}`).value = text; });
+  h.click({ ai: 'essay_review' }); await settle();
+  assert.equal(JSON.parse(h.requests.at(-1)[1].body).studentText, reviewParagraphs.join('\n\n'));
+  assert.match(h.node('#teacher-result').innerHTML, /Semakan Karangan/);
+  assert.deepEqual(h.state().drafts[id].paragraphs, reviewParagraphs);
+  assert.equal(h.requests.length, 5);
+});
+
+test('mini review copy is local, read-only, fresh, independent during loading, and retryable after clipboard failure', async t => {
+  let release;
+  const h = await appHarness(t, { year: 4, activity: 'essay', apiResponse: (url, init) => new Promise(resolve => {
+    release = () => resolve(Response.json({ ok: true, action: JSON.parse(init.body).action, data: reviewFeedback }));
+  }) });
+  const before = h.storage.getItem(STORAGE_KEY);
+  Object.assign(h.node('[data-plan="p0"]'), { dataset: { plan: 'p0' }, value: 'Butiran rancangan semasa yang belum disimpan.' });
+  reviewParagraphs.forEach((text, i) => { h.node(`#essay-paragraph-${i + 1}`).value = text; });
+  for (const action of ['paragraph_review', 'essay_review']) {
+    const control = essayMiniControl(h, action, action === 'paragraph_review' ? 3 : undefined);
+    await control.copy();
+    const copied = h.copied.at(-1);
+    assert.equal(control.feedback.textContent, 'Disalin ✓');
+    assert.match(copied, /Jawab dalam Bahasa Melayu.*mudah dibaca/);
+    assert.doesNotMatch(copied, /Pulangkan JSON|"summary"\s*:/);
+    assert.ok(copied.includes(reviewParagraphs[2]));
+    assert.ok(copied.includes('Butiran rancangan semasa yang belum disimpan.'));
+    assert.equal(copied.includes(reviewParagraphs[3]), action === 'essay_review');
+    assert.equal(h.storage.getItem(STORAGE_KEY), before);
+  }
+  assert.equal(h.requests.length, 0);
+  const main = h.node('main-review'); main.dataset = { ai: 'paragraph_review', aiParagraph: '3' };
+  const click = () => h.root.onclick({ target: { closest: () => main } });
+  click(); click();
+  assert.equal(main.disabled, true);
+  assert.equal(h.requests.length, 1);
+  assert.equal(JSON.parse(h.requests[0][1].body).planningNotes[0], 'Butiran rancangan semasa yang belum disimpan.');
+  assert.match(h.node('#teacher-result').innerHTML, /loading/);
+  const loading = h.node('#teacher-result').innerHTML, saved = h.storage.getItem(STORAGE_KEY);
+  const control = essayMiniControl(h, 'essay_review');
+  await control.copy();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.node('#teacher-result').innerHTML, loading);
+  assert.equal(h.storage.getItem(STORAGE_KEY), saved);
+  release(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(main.disabled, false);
+  const result = h.node('#teacher-result').innerHTML;
+  navigator.clipboard.writeText = async () => { throw Error('denied'); };
+  document.createElement = () => { throw Error('fallback denied'); };
+  await control.copy();
+  assert.match(control.feedback.textContent, /Tidak dapat menyalin/);
+  navigator.clipboard.writeText = async text => h.copied.push(text);
+  h.node('#essay-paragraph-4').value = 'Penutup baharu yang belum disimpan.';
+  await control.copy();
+  assert.ok(h.copied.at(-1).includes('Penutup baharu yang belum disimpan.'));
+  assert.equal(h.node('#teacher-result').innerHTML, result);
+  assert.equal(h.storage.getItem(STORAGE_KEY), saved);
+  assert.equal(h.requests.length, 1);
+});
 
 test('seven mini copy controls use their own action and live unsaved editors without fetching, saving or replacing results', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -490,10 +575,7 @@ test('paragraph controllers combine live edits, scope every AI action, restore t
     for (const action of actionActivities.essay.filter(a => a !== 'essay_review')) {
       h.click({ ai: action, aiParagraph: String(index) });
       await settle();
-      if (action === 'paragraph_review') {
-        const prompt = h.node('#teacher-result').innerHTML;
-        for (let i = 0; i < 4; i++) assert.equal(prompt.includes(values[i]), i < index);
-      } else {
+      {
         const [url, options] = h.requests.at(-1);
         assert.equal(url, '/api/gemini');
         const request = JSON.parse(options.body);
@@ -515,8 +597,9 @@ test('paragraph controllers combine live edits, scope every AI action, restore t
   h.node('#modal').close();
   setParagraph(3, values[2]);
   h.click({ ai: 'essay_review' }); await settle();
-  const fullPrompt = h.node('#teacher-result').innerHTML;
-  for (const value of values) assert.ok(fullPrompt.includes(value));
+  const fullRequest = JSON.parse(h.requests.at(-1)[1].body);
+  assert.equal(fullRequest.studentText, values.join('\n\n'));
+  assert.match(h.node('#teacher-result').innerHTML, /role="alert"/);
   h.node('#modal').close();
   const nextTopic = h.pack.essayTopics.find(topic => topic.id !== firstContent);
   h.root.onchange({ target: { id: 'writing-topic-select', dataset: {}, value: nextTopic.id } });
@@ -632,10 +715,11 @@ test('every paragraph Jana Prompt copies immediately from the same live source a
     assert.equal(button.textContent, 'Disalin ✓');
     const prompt = h.copied.at(-1), state = h.state(), draft = state.drafts[state.activeDrafts['4:essay']];
     assert.equal(prompt, buildExternalTutorPrompt({ action, activity: 'essay', year: 4, title: state.selectedEssayTitle[4],
-      paragraphIndex: index, previousParagraphs: values.slice(0, index - 1), studentText: values[index - 1], stage: draft.stage }));
+      paragraphIndex: index, previousParagraphs: values.slice(0, index - 1), studentText: values[index - 1], stage: draft.stage,
+      ...(action === 'paragraph_review' ? { writingType: h.pack.essayTopics.find(topic => topic.id === draft.contentId).writing_type } : {}) }));
     for (let i = 0; i < 4; i++) assert.equal(prompt.includes(values[i]), i < index);
     assert.ok(!prompt.includes('karangan_contoh'));
-    assert.deepEqual(draft.paragraphs, values);
+    if (action !== 'paragraph_review') assert.deepEqual(draft.paragraphs, values);
     if (action !== 'paragraph_review') {
       h.click({ ai: action, aiParagraph: String(index) }); await settle();
       assert.equal(buildExternalTutorPrompt(JSON.parse(h.requests.at(-1)[1].body)), prompt);
@@ -692,7 +776,8 @@ test('all external essay copy entry points preserve exact clipboard content, sav
     button.dataset = { janaPrompt: action, promptParagraph: '1' };
     const expected = buildExternalTutorPrompt({ action, activity: 'essay', year: 3,
       title: h.state().drafts[id].title, stage: h.state().drafts[id].stage,
-      paragraphIndex: 1, previousParagraphs: [], studentText: representativeEssay });
+      paragraphIndex: 1, previousParagraphs: [], studentText: representativeEssay,
+      ...(action === 'paragraph_review' ? { writingType: h.pack.essayTopics.find(topic => topic.id === h.state().drafts[id].contentId).writing_type } : {}) });
     for (let copy = 0; copy < 2; copy++) {
       const beforeCount = h.copied.length;
       await h.root.onclick({ target: { closest: () => button } });
@@ -703,19 +788,21 @@ test('all external essay copy entry points preserve exact clipboard content, sav
   }
   assert.equal(h.requests.length, 0);
   h.click({ ai: 'essay_review' }); await settle();
+  const savedAfterReview = h.storage.getItem(STORAGE_KEY);
   const expected = buildExternalTutorPrompt({ action: 'essay_review', activity: 'essay', year: 3,
-    title: h.state().drafts[id].title, stage: h.state().drafts[id].stage, studentText: representativeEssay });
-  assert.equal(h.storage.getItem(STORAGE_KEY), saved, 'Opening a local review must not snapshot the draft');
+    title: h.state().drafts[id].title, stage: h.state().drafts[id].stage, studentText: representativeEssay,
+    writingType: h.pack.essayTopics.find(topic => topic.id === h.state().drafts[id].contentId).writing_type });
+  assert.equal(h.requests.length, 1, 'Whole review now calls the shared API');
   for (let copy = 0; copy < 2; copy++) {
     await h.node('#teacher-prompt').onclick();
     const beforeCount = h.copied.length;
     await h.node('#copy-prompt').onclick();
     assertCopy('essay_review', expected, beforeCount);
     assert.equal(h.node('#toast').textContent, 'Prompt disalin.');
-    assert.equal(h.storage.getItem(STORAGE_KEY), saved);
+    assert.equal(h.storage.getItem(STORAGE_KEY), savedAfterReview);
   }
   h.node('#modal').close();
-  assert.equal(h.requests.length, 0);
+  assert.equal(h.requests.length, 1);
   // Every paragraph modal exposes another local prompt copy entry point.
   for (const action of actionActivities.essay.filter(a => a !== 'essay_review')) {
     h.click({ ai: action, aiParagraph: '1' }); await settle();
@@ -724,16 +811,12 @@ test('all external essay copy entry points preserve exact clipboard content, sav
     await h.node('#teacher-prompt').onclick();
     const expectedParagraph = buildExternalTutorPrompt({ action, activity: 'essay', year: 3,
       title: h.state().drafts[id].title, stage: h.state().drafts[id].stage,
-      paragraphIndex: 1, previousParagraphs: [], studentText: representativeEssay });
+      paragraphIndex: 1, previousParagraphs: [], studentText: representativeEssay,
+      ...(action === 'paragraph_review' ? { writingType: h.pack.essayTopics.find(topic => topic.id === h.state().drafts[id].contentId).writing_type } : {}) });
     assertCopy(action, expectedParagraph, beforeCount);
     assert.equal(h.node('#teacher-prompt').textContent, 'Disalin ✓');
     assert.equal(h.requests.length, callsBeforeCopy);
     assert.equal(h.storage.getItem(STORAGE_KEY), savedBeforeCopy);
-    if (action === 'paragraph_review') {
-      const beforeReviewCopy = h.copied.length;
-      await h.node('#copy-prompt').onclick();
-      assertCopy(action, expectedParagraph, beforeReviewCopy);
-    }
     h.node('#modal').close();
   }
   h.type(representativeEssay + ' Saya mahu membantu ibu lagi.');

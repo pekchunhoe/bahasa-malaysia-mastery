@@ -86,11 +86,11 @@ export function createTeacherHandler({
         throw new TeacherError("INVALID_REQUEST", 400);
       }
       const input = tutorRequest(raw);
-      if (executionMode(input.action, modes) === "prompt")
+      if (executionMode(input.action, modes, input.activity) === "prompt")
         throw new TeacherError("PROMPT_ONLY", 400);
       if (!env.GEMINI_API_KEY?.trim())
         throw new TeacherError("AI_NOT_CONFIGURED", 500);
-      selectGeminiModel(input.action, env);
+      selectGeminiModel(input.action, env, input.activity);
       release = limiter.acquire(request, env.VERCEL === "1");
       const cancelled = new Promise((_, reject) => {
         controller.signal.addEventListener(

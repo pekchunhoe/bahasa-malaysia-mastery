@@ -64,7 +64,7 @@ const guides = {
 guides['Penerangan mudah'] = guides['Penerangan fakta'];
 guides['Langkah mudah'] = guides['Langkah dan panduan'];
 export function writingGuidance(topic, year) {
-  let guide = guides[topic?.writing_type] || { purpose: 'Pilih satu idea dan tulis dengan kata-kata sendiri.',
+  let guide = (Object.hasOwn(guides, topic?.writing_type) ? guides[topic.writing_type] : null) || { purpose: 'Pilih satu idea dan tulis dengan kata-kata sendiri.',
     questions: ['Apakah idea utama?', 'Apakah butiran yang menyokongnya?', 'Bagaimanakah tulisan kamu berakhir?'],
     format: ['Pengenalan, isi yang berkaitan dan penutup.'] };
   // The workbook groups speeches together; the supplied title identifies the occasion.

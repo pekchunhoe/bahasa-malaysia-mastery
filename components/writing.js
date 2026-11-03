@@ -1,17 +1,18 @@
 import { e, icon } from "./ui.js";
-import { actionActivities, tutorActions } from "../js/tutor-actions.js";
+import { actionActivities, tutorActions, isEssayReview } from "../js/tutor-actions.js";
 import { writingCounts } from "../js/learning-service.js";
 import { essayParagraphs, paragraphLabels, MAX_ESSAY_TEXT } from '../js/essay-paragraphs.js';
 import { detailExpansionAction } from '../js/expansion-tutor.js';
-import { expansionActionPair } from './expansion-prompt.js';
+import { expansionActionPair, essayReviewActionPair } from './expansion-prompt.js';
 export function teacherButtons(activity, paragraphIndex) {
   const actions = (actionActivities[activity] || []).filter(action => action !== 'keyword_meaning' && action !== detailExpansionAction && (activity !== 'essay' || (paragraphIndex ? action !== 'essay_review' : action === 'essay_review')));
   const essayParagraph = activity === 'essay' && paragraphIndex;
   return `<div class="teacher-actions${essayParagraph ? ' essay-ai-actions' : ''}">${actions.map((action, index) => {
     const label = tutorActions[action].label;
-    const promptIndicator = !essayParagraph && tutorActions[action].mode === "prompt" ? '<span class="mini-label">Jana prompt</span>' : "";
+    const promptIndicator = !essayParagraph && !isEssayReview({ activity, action }) && tutorActions[action].mode === "prompt" ? '<span class="mini-label">Jana prompt</span>' : "";
     const button = `<button type="button" class="button ${index === 0 ? "tint" : "subtle"}" data-ai="${action}" ${paragraphIndex ? `data-ai-paragraph="${paragraphIndex}" aria-label="${e(label)} — Perenggan ${paragraphIndex}"` : ''}>${icon(index === 0 ? "spark" : "chevron")}${e(label)}${promptIndicator}</button>`;
     if (activity === 'expansion') return expansionActionPair(action, button);
+    if (isEssayReview({ activity, action })) return essayReviewActionPair(action, button, paragraphIndex);
     return paragraphIndex ? `<div class="teacher-action-pair essay-ai-action-group" role="group" aria-label="${e(label)} — Perenggan ${paragraphIndex}">${button}<button type="button" class="button subtle" data-jana-prompt="${action}" data-prompt-paragraph="${paragraphIndex}" aria-label="Jana Prompt — ${e(label)} — Perenggan ${paragraphIndex}" aria-live="polite">Jana Prompt</button></div>` : button;
   }).join("")}</div>`;
 }

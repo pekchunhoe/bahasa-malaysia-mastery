@@ -235,7 +235,7 @@ test("teacher buttons render feedback/errors and copy external prompts without c
   await node("#teacher-prompt").onclick();
   await node("#copy-prompt").onclick();
   assert.equal(copied, buildTutorPrompt(input()));
-  for (const action of ["paragraph_review", "essay_review"]) {
+  for (const action of ["paragraph_review"]) {
     openTeacher({ service, request: input(action), store });
     await settle();
     assert.match(node("#teacher-result").innerHTML, /Salin prompt/);
