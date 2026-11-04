@@ -24,14 +24,57 @@ export function ensureMemoryVersion(draft, source) {
 }
 const invalid = () => { throw Error('Maklum balas Cikgu AI tidak lengkap. Cuba lagi.'); };
 const short = (value, max) => typeof value === 'string' && !!value.trim() && value.length <= max;
-export function normalizeMemoryNotes(raw, paragraphs) {
+const lexicalWords = /[\p{L}\p{M}\p{N}]+(?:[-‐‑][\p{L}\p{M}\p{N}]+)*/gu;
+const functionWords = new Set('dan yang di ke dari daripada kepada pada untuk dengan oleh dalam itu ini ialah adalah atau serta akan telah sudah kami kita saya mereka dia kamu ia seorang sebuah sebiji'.split(' '));
+// Offsets use JavaScript UTF-16 indices. Match entire Unicode lexical tokens,
+// then select ONE occurrence; never replace every matching substring.
+export function memoryHighlight(sentence, boldWord, range) {
+  if (typeof sentence !== 'string' || typeof boldWord !== 'string' ||
+      !/^\p{L}[\p{L}\p{M}\p{N}]*(?:[-‐‑][\p{L}\p{M}\p{N}]+)*$/u.test(boldWord) ||
+      functionWords.has(boldWord.toLocaleLowerCase('ms'))) return null;
+  const words = [...sentence.matchAll(lexicalWords)];
+  if (words.length < 2) return null;
+  const match = words.find(word => word[0] === boldWord &&
+    (range === undefined || (range?.start === word.index && range?.end === word.index + word[0].length)));
+  return match ? { start: match.index, end: match.index + match[0].length } : null;
+}
+export function memoryPointView(point) {
+  const sentence = typeof point.importantSentence === 'string' ? point.importantSentence : point.text || '';
+  return { sentence, primaryKeyword: point.primaryKeyword ?? point.cue ?? '',
+    additionalKeywords: Array.isArray(point.additionalKeywords) ? point.additionalKeywords : [],
+    highlight: memoryHighlight(sentence, point.boldWord, point.highlight) };
+}
+export function normalizeMemoryPoint(point, { requireKeywords = false } = {}) {
+  if (!point || typeof point !== 'object') invalid();
+  const structured = requireKeywords || ['importantSentence', 'primaryKeyword', 'additionalKeywords', 'boldWord', 'highlight'].some(key => Object.hasOwn(point, key));
+  const sentence = requireKeywords ? point.importantSentence : structured ? point.importantSentence ?? point.text : point.text;
+  if (!short(sentence, 800)) invalid();
+  if (!structured) {
+    if (typeof point.cue !== 'string' || point.cue.length > 40) invalid();
+    return { text: sentence.trim(), cue: point.cue.trim() };
+  }
+  const primary = requireKeywords ? point.primaryKeyword : point.primaryKeyword ?? point.cue;
+  const primaryKeyword = short(primary, 160) ? primary.trim() : '';
+  const validAdditional = Array.isArray(point.additionalKeywords) && point.additionalKeywords.every(cue => short(cue, 160));
+  const boldWord = typeof point.boldWord === 'string' ? point.boldWord : '';
+  const highlight = memoryHighlight(sentence.trim(), boldWord, point.highlight);
+  if (requireKeywords && (!primaryKeyword || !validAdditional || !highlight)) invalid();
+  const seen = new Set([primaryKeyword.toLocaleLowerCase('ms')]);
+  const additionalKeywords = (Array.isArray(point.additionalKeywords) ? point.additionalKeywords : [])
+    .filter(cue => short(cue, 160)).map(cue => cue.trim()).filter(cue => {
+      const key = cue.toLocaleLowerCase('ms');
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+  return { primaryKeyword, additionalKeywords, importantSentence: sentence.trim(), boldWord, highlight };
+}
+export function normalizeMemoryNotes(raw, paragraphs, options) {
   if (!raw || !Array.isArray(raw.paragraphs) || raw.paragraphs.length !== paragraphs.length) invalid();
   return { paragraphs: raw.paragraphs.map((p, i) => {
     if (!p || p.paragraphIndex !== i + 1 || !short(p.heading, 160) ||
-        !Array.isArray(p.points) || !p.points.length || !p.points.every(point =>
-          point && short(point.text, 800) && typeof point.cue === 'string' && point.cue.length <= 40)) invalid();
+        !Array.isArray(p.points) || !p.points.length) invalid();
     return { paragraphIndex: i + 1, heading: p.heading.trim(),
-      points: p.points.map(point => ({ text: point.text.trim(), cue: point.cue.trim() })) };
+      points: p.points.map(point => normalizeMemoryPoint(point, options)) };
   }) };
 }
 export function normalizeMemoryReview(raw, points) {

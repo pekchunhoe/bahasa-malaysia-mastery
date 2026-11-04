@@ -1,6 +1,7 @@
 import { ensureMemoryVersion, memorySource, sourceIdentity, finalMemoryEssay } from './essay-memory.js';
 import { memoryFinal, memoryFeedback } from '../activities/essay-memory.js';
-import { copyText } from '../components/clipboard.js';
+import { copyRichText, copyText } from '../components/clipboard.js';
+import { memoryNotesClipboard } from '../components/memory-notes.js';
 
 export function createMemoryController({ store, ai, render, document: dom = globalThis.document }) {
   let draft, selected = 0, current = 0, identity = '', revealed = false, busy = '', error = '';
@@ -99,6 +100,18 @@ export function createMemoryController({ store, ai, render, document: dom = glob
       } else if (data.memoryAction === 'reveal') { revealed = !revealed; refresh('[data-memory-action="reveal"]'); }
       else if (data.memoryAction === 'generate') void request('memory_points');
       else if (data.memoryAction === 'check') void request('memory_review');
+      else if (data.memoryAction === 'copy-notes') {
+        const payload = memoryNotesClipboard(version), status = dom.querySelector('[data-memory-notes-copy-status]');
+        if (!payload || button.getAttribute('aria-busy') === 'true') return true;
+        button.setAttribute('aria-busy', 'true');
+        if (status) status.textContent = '';
+        void copyRichText(payload).then(format => {
+          if (status) status.textContent = format === 'html' ? '✅ Isi penting berjaya disalin!'
+            : '✅ Isi penting disalin dalam format teks. Format teks tidak dapat mengekalkan kotak berbingkai.';
+        }, () => {
+          if (status) status.textContent = 'Belum berjaya menyalin isi penting. Cuba lagi dan benarkan akses papan keratan.';
+        }).finally(() => button.setAttribute('aria-busy', 'false'));
+      }
       else if (data.memoryAction === 'copy') {
         const text = finalMemoryEssay(version), status = dom.querySelector('[data-memory-copy-status]');
         if (!text || button.getAttribute('aria-busy') === 'true') return true;

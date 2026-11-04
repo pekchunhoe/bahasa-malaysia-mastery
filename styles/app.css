@@ -15,10 +15,17 @@
 .memory-paragraph-nav > span { text-align: center; }
 .memory-heading { font-size: 20px; line-height: 1.5; }
 .memory-points { list-style: none; padding: 0; margin: 18px 0; display: grid; gap: 10px; }
-.memory-points li { display: flex; align-items: baseline; gap: 12px; padding: 12px 14px; background: var(--color-surface-soft); border-radius: 9px; line-height: 1.6; }
-.memory-points li > span:first-child:empty { display: none; }
-.memory-points li > span:first-child { flex: 0 1 auto; }
-.memory-points li > span:last-child { flex: 1; min-width: 0; }
+.memory-points li { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 7fr); align-items: start; gap: 14px; line-height: 1.6; }
+.memory-keywords { min-width: 0; border: 1px solid var(--color-border); background: var(--color-surface-soft); border-radius: 9px; padding: 9px 11px; overflow-wrap: anywhere; }
+.memory-keywords > strong { display: block; }
+.memory-supporting { display: block; margin-top: 4px; font-size: 14px; font-weight: 400; }
+.memory-sentence { min-width: 0; padding-block: 9px; font-weight: 400; overflow-wrap: anywhere; }
+.memory-copy-feedback { flex-basis: 100%; font-size: 14px; }
+.memory-copy-feedback:empty { display: none; }
+@media (max-width: 480px) {
+  .memory-points li { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .memory-sentence { padding: 3px 2px 8px; }
+}
 #memory-writing { display: block; width: 100%; min-height: 180px; font-size: 16px; line-height: 1.75; margin: 12px 0; resize: vertical; }
 .memory-check { margin-bottom: 12px; }
 .memory-feedback { margin-top: 12px; padding: 18px; border: 1px solid var(--color-border); border-radius: 10px; }

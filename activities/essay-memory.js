@@ -1,8 +1,8 @@
 import { e } from '../components/ui.js';
 import { finalMemoryEssay } from '../js/essay-memory.js';
+import { renderMemoryPoints as points } from '../components/memory-notes.js';
 
 export const memoryActivities = ['👀 1. Lihat & Ingat', '🧠 2. Tutup & Ingat', '✍️ 3. Tulis Semula'];
-const points = paragraph => `<ol class="memory-points">${paragraph.points.map(point => `<li><span aria-hidden="true">${e(point.cue)}</span><span>${e(point.text)}</span></li>`).join('')}</ol>`;
 export function memoryFeedback(version) {
   const index = version.paragraph, feedback = version.feedback[index];
   if (!feedback) return '';
@@ -12,7 +12,7 @@ export function memoryFeedback(version) {
 }
 export function memoryFinal(version) {
   const missing = version.writing.flatMap((text, i) => text.trim() ? [] : [i + 1]);
-  return `${missing.length ? `<p class="notice" data-memory-incomplete>Belum lengkap. Perenggan ${missing.join(', ')} belum ditulis. Kamu boleh menyalin tulisan yang ada.</p>` : '<p class="small">Semua perenggan sudah ditulis.</p>'}<div class="memory-final-text" tabindex="0" aria-label="Karangan akhir saya">${e(finalMemoryEssay(version)) || 'Tulisan kamu akan digabungkan di sini.'}</div><div class="actions"><button class="button primary" data-memory-action="copy" ${finalMemoryEssay(version) ? '' : 'disabled'}>📋 Salin Karangan Akhir</button><span data-memory-copy-status role="status" aria-live="polite"></span></div>`;
+  return `${missing.length ? `<p class="notice" data-memory-incomplete>Belum lengkap. Perenggan ${missing.join(', ')} belum ditulis. Kamu boleh menyalin tulisan yang ada.</p>` : '<p class="small">Semua perenggan sudah ditulis.</p>'}<div class="memory-final-text" tabindex="0" aria-label="Karangan akhir saya">${e(finalMemoryEssay(version)) || 'Tulisan kamu akan digabungkan di sini.'}</div><div class="actions"><button class="button primary" data-memory-action="copy" ${finalMemoryEssay(version) ? '' : 'disabled'}>📋 Salin Karangan Akhir</button><button class="button" data-memory-action="copy-notes" ${version.notes ? '' : 'disabled'}>📋 Salin Isi Penting</button><span class="memory-copy-feedback" data-memory-copy-status role="status" aria-live="polite"></span><span class="memory-copy-feedback" data-memory-notes-copy-status role="status" aria-live="polite"></span></div>`;
 }
 export function renderEssayMemory({ memory = {} }) {
   const { draft, version, selected, current, busy, error, revealed } = memory;

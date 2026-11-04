@@ -48,8 +48,8 @@ async function route(name) {
   await evaluate(`location.hash=${JSON.stringify('#' + name)}`);
   await until(() => evaluate(`document.querySelector('nav [aria-current="page"]').getAttribute('href')===${JSON.stringify('#' + name)}`));
 }
-async function screenshot(name, selector) {
-  await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`);
+async function screenshot(name, selector, block = 'center') {
+  await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:${JSON.stringify(block)}})`);
   const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, fromSurface: true });
   await writeFile(path.join(output, name + '.png'), Buffer.from(data, 'base64'));
 }
@@ -71,8 +71,12 @@ try {
   await send('Runtime.runIfWaitingForDebugger');
   await send('Runtime.enable'); await send('Page.enable');
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `
-    window.__requests=[];window.__copied=[];window.__held=[];window.__status=200;
-    Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{if(window.__clipboardFail)throw Error('denied');window.__copied.push(text);}}});
+    window.__requests=[];window.__copied=[];window.__richCopied=[];window.__held=[];window.__status=200;
+    window.__nativeClipboard=navigator.clipboard;
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{
+      write:async items=>{if(window.__richFail||window.__clipboardFail)throw Error('denied');window.__richCopied.push({html:await(await items[0].getType('text/html')).text(),text:await(await items[0].getType('text/plain')).text()});},
+      writeText:async text=>{if(window.__clipboardFail)throw Error('denied');window.__copied.push(text);}
+    }});
     document.execCommand=()=>{if(window.__fallbackOK){window.__copied.push(document.querySelector('textarea[readonly]').value);return true;}return false;};
     const originalFetch=window.fetch;
     window.fetch=async (url,init)=>{
@@ -106,6 +110,28 @@ try {
   await until(() => evaluate(`document.querySelector('.memory-activities')`));
   assert.deepEqual(await evaluate('window.__requests[0].sourceParagraphs'), memoryParagraphs);
   assert.deepEqual((await saved()).drafts[draftId].memory.versions[0].notes.paragraphs.map(p => p.points.length), [1, 2, 3, 4, 5, 6]);
+  assert.equal(await evaluate(`document.querySelector('[data-memory-action="copy"]').disabled`), true);
+  assert.equal(await evaluate(`document.querySelector('[data-memory-action="copy-notes"]').disabled`), false);
+  const stateBeforeCopy = await saved(), callsBeforeCopy = await evaluate('window.__requests.length');
+  await click('[data-memory-action="copy-notes"]');
+  await until(() => evaluate(`document.querySelector('[data-memory-notes-copy-status]').textContent==='✅ Isi penting berjaya disalin!'`));
+  const richPayload = await evaluate('window.__richCopied.at(-1)');
+  assert.equal((richPayload.html.match(/<table /g) || []).length, 6);
+  assert.equal((richPayload.html.match(/<tr>/g) || []).length, 21);
+  await writeFile(path.join(output, 'clipboard-notes.html'), richPayload.html);
+  await writeFile(path.join(output, 'clipboard-notes.txt'), richPayload.text);
+  assert.deepEqual(await saved(), stateBeforeCopy);
+  assert.equal(await evaluate('window.__requests.length'), callsBeforeCopy);
+  await evaluate('window.__richFail=true'); await click('[data-memory-action="copy-notes"]');
+  await until(() => evaluate(`document.querySelector('[data-memory-notes-copy-status]').textContent.includes('format teks')`));
+  assert.equal(await evaluate('window.__copied.at(-1)'), richPayload.text);
+  await evaluate('window.__clipboardFail=true'); await click('[data-memory-action="copy-notes"]');
+  await until(() => evaluate(`document.querySelector('[data-memory-notes-copy-status]').textContent.includes('Belum berjaya')`));
+  assert.ok(!(await text('[data-memory-notes-copy-status]')).includes('✅'));
+  await evaluate('window.__fallbackOK=true'); await click('[data-memory-action="copy-notes"]');
+  await until(() => evaluate(`document.querySelector('[data-memory-notes-copy-status]').textContent.includes('format teks')`));
+  assert.equal(await evaluate('window.__copied.at(-1)'), richPayload.text);
+  await evaluate('window.__richFail=false;window.__clipboardFail=false;window.__fallbackOK=false');
   for (let i = 0; i < 5; i++) await click('[data-memory-move="1"]');
   assert.equal(await evaluate(`document.querySelectorAll('.memory-points li').length`), 6);
   await screenshot('desktop-all-six-points', '.memory-activities');
@@ -172,11 +198,35 @@ try {
     const geometry = await evaluate(`({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,controls:[...document.querySelectorAll('.memory-workspace button')].map(el=>({width:el.clientWidth,scroll:el.scrollWidth,height:el.getBoundingClientRect().height}))})`);
     assert.ok(geometry.scroll <= geometry.width + 1, name + ': page overflow');
     assert.ok(geometry.controls.every(c => c.scroll <= c.width + 1 && c.height >= 44), name + ': controls clipped or too small');
+    const rows = await evaluate(`[...document.querySelectorAll('.memory-points li')].map(row=>{const box=row.querySelector('.memory-keywords'),sentence=row.querySelector('.memory-sentence'),b=box.getBoundingClientRect(),s=sentence.getBoundingClientRect(),css=getComputedStyle(box);return {left:b.left,right:b.right,top:b.top,bottom:b.bottom,sentenceLeft:s.left,sentenceTop:s.top,boxWidth:box.clientWidth,boxScroll:box.scrollWidth,sentenceWidth:sentence.clientWidth,sentenceScroll:sentence.scrollWidth,strong:sentence.querySelectorAll('strong').length,word:sentence.querySelector('strong').textContent,border:css.borderTopWidth,background:css.backgroundColor,weight:getComputedStyle(sentence).fontWeight};})`);
+    assert.equal(rows.length, 3);
+    for (const row of rows) {
+      assert.equal(row.strong, 1); assert.ok(!/\s/.test(row.word)); assert.equal(row.weight, '400');
+      assert.ok(row.boxScroll <= row.boxWidth + 1 && row.sentenceScroll <= row.sentenceWidth + 1, name + ': notes clipped');
+      assert.notEqual(row.border, '0px'); assert.notEqual(row.background, 'rgba(0, 0, 0, 0)');
+      if (width > 480) assert.ok(row.sentenceLeft >= row.right, name + ': two columns');
+      else assert.ok(row.sentenceTop >= row.bottom, name + ': box immediately above sentence');
+    }
+    assert.match(await text('.memory-keywords'), /Penyapu • Penyodok • Kain buruk/);
     await screenshot(name + '-learn', '.memory-activities');
+    // Deliberately long cue phrases exercise wrapping through the real renderer.
+    // Restore DOM afterwards; neither saved notes nor student writing are changed.
+    const stress = await evaluate(`(async()=>{
+      const list=document.querySelector('.memory-points'),before=list.outerHTML;
+      const {renderMemoryPoints}=await import('/components/memory-notes.js');
+      list.outerHTML=renderMemoryPoints({points:[{primaryKeyword:'Peralatan pembersihan untuk aktiviti gotong-royong bersama rakan sekolah',additionalKeywords:['Penyapu dan penyodok untuk membersihkan halaman sekolah','Kain buruk untuk mengelap meja dan kerusi'],importantSentence:'Kami menyediakan peralatan pembersihan sebelum memulakan aktiviti gotong-royong.',boldWord:'menyediakan'}]});
+      const updated=document.querySelector('.memory-points');
+      const values={pageOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth+1,clipped:[...updated.querySelectorAll('div')].some(el=>el.scrollWidth>el.clientWidth+1),cueHeight:updated.querySelector('.memory-keywords').getBoundingClientRect().height};
+      updated.outerHTML=before;return values;
+    })()`);
+    assert.equal(stress.pageOverflow, false, name + ': long phrase overflow');
+    assert.equal(stress.clipped, false, name + ': long phrase clipping');
+    assert.ok(stress.cueHeight > 60, name + ': cues wrap over multiple lines');
     await click('[data-memory-activity="2"]');
     await screenshot(name + '-write', '#memory-writing');
     await screenshot(name + '-final', '[data-memory-final]');
-    results.push({ name, width, height, pageOverflow: false, controlsClipped: false, touchTargets: '>=44px' });
+    results.push({ name, width, height, pageOverflow: false, controlsClipped: false, touchTargets: '>=44px',
+      keywordLayout: width > 480 ? 'two columns' : 'box directly above sentence', singleBoldWords: true, supportingCues: 3, longCuesWrap: true });
   }
   await route('essay');
   await evaluate(`{const el=document.querySelector('#essay-paragraph-1');el.value+=' Sumber berubah.';el.dispatchEvent(new Event('input',{bubbles:true}));}`);
@@ -199,9 +249,39 @@ try {
   await route('memory');
   versions = (await saved()).drafts[draftId].memory.versions;
   assert.deepEqual(versions[0].writing, writing);
+  // Exercise the native browser clipboard/paste path in this temporary profile.
+  // Word, Docs and physical device paste remain separate compatibility checks.
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  let nativePaste;
+  try {
+    await send('Browser.grantPermissions', { origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
+    await send('Page.bringToFront');
+    await evaluate(`(async()=>{
+      const p=${JSON.stringify(richPayload)};
+      Object.defineProperty(navigator,'clipboard',{configurable:true,value:window.__nativeClipboard});
+      window.__nativePayload=p;
+      const editor=document.createElement('div');editor.id='paste-verification';editor.contentEditable='true';editor.setAttribute('aria-label','Rich-text paste verification');
+      editor.style='background:white;padding:24px;max-width:1000px;margin:20px auto;border:1px solid #aaa;';
+      document.querySelector('main').replaceChildren(editor);editor.focus();
+      const {copyRichText}=await import('/components/clipboard.js');
+      if(await copyRichText(p)!=='html')throw Error('Native rich clipboard unsupported');
+    })()`);
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', modifiers: 2, key: 'v', code: 'KeyV', windowsVirtualKeyCode: 86 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers: 2, key: 'v', code: 'KeyV', windowsVirtualKeyCode: 86 });
+    await until(() => evaluate(`document.querySelectorAll('#paste-verification table').length===6`));
+    const pasted = await evaluate(`({tables:document.querySelectorAll('#paste-verification table').length,rows:[...document.querySelectorAll('#paste-verification tr')].map(row=>({cues:row.cells[0].innerText,sentence:row.cells[1].innerText,strong:[...row.cells[1].querySelectorAll('strong,b')].filter(el=>getComputedStyle(el).fontWeight>400).length,border:getComputedStyle(row.cells[0]).borderTopWidth,background:getComputedStyle(row.cells[0]).backgroundColor,weight:getComputedStyle(row.cells[1]).fontWeight})),html:document.querySelector('#paste-verification').innerHTML})`);
+    assert.equal(pasted.rows.length, 21);
+    assert.ok(pasted.rows.every(row => row.strong === 1 && row.border !== '0px' && row.background !== 'rgba(0, 0, 0, 0)' && row.weight === '400'));
+    await writeFile(path.join(output, 'native-pasted-notes.html'), pasted.html);
+    await screenshot('desktop-native-rich-paste', '#paste-verification', 'start');
+    nativePaste = { status: 'PASS', editor: 'Edge contenteditable', tables: pasted.tables, rows: pasted.rows.length, singleBoldWords: true, visibleKeywordBoxes: true };
+  } catch (failure) {
+    nativePaste = { status: 'UNVERIFIED', reason: failure.message };
+    console.log('Native paste:', nativePaste);
+  }
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, 'results.json'), JSON.stringify({ api: 'mocked', clipboard: 'mocked success, denial and fallback', results, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ status: 'PASS', results, screenshots: output }));
+  await writeFile(path.join(output, 'results.json'), JSON.stringify({ api: 'mocked', clipboard: 'mocked rich/text success, denial and fallback; separate native paste attempt', nativePaste, results, errors }, null, 2) + '\n');
+  console.log(JSON.stringify({ status: 'PASS', nativePaste, results, screenshots: output }));
 } finally {
   socket?.close(); child.kill(); await delay(500);
   assert.equal(path.dirname(profile), os.tmpdir());

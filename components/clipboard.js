@@ -1,6 +1,20 @@
 // Shared by example cards and immediate local Jana Prompt controls.
 const confirmations = new WeakMap();
 const copying = new WeakSet();
+export async function copyRichText({ html, text }) {
+  if (navigator.clipboard?.write && typeof globalThis.ClipboardItem === 'function') {
+    try {
+      const item = new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      });
+      await navigator.clipboard.write([item]);
+      return 'html';
+    } catch { /* Unsupported HTML or denied rich copy: try the shared text path. */ }
+  }
+  await copyText(text);
+  return 'text';
+}
 export async function copyText(text) {
   if (navigator.clipboard?.writeText) {
     try { await navigator.clipboard.writeText(text); return; } catch { /* Try the local fallback. */ }
